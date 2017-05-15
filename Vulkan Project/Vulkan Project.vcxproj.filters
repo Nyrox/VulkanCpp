@@ -27,6 +27,9 @@
     <ClCompile Include="source\Core\Vulkan\VDebug.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="source\Core\Util\FileUtil.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\Window\Window.h">
@@ -41,5 +44,15 @@
     <ClInclude Include="source\Core\Vulkan\VDebug.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
+    <ClInclude Include="source\Core\Util\FileUtil.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\tri.vert" />
+    <None Include="shaders\tri.frag" />
+    <None Include="shaders\compile.bat">
+      <Filter>Quelldateien</Filter>
+    </None>
   </ItemGroup>
 </Project>

@@ -15,6 +15,11 @@ REGISTER_VK_OBJECT(VkDevice)
 REGISTER_VK_OBJECT(VkSurfaceKHR)
 REGISTER_VK_OBJECT(VkSwapchainKHR)
 REGISTER_VK_OBJECT(VkImageView);
+REGISTER_VK_OBJECT(VkShaderModule);
+REGISTER_VK_OBJECT(VkRenderPass);
+REGISTER_VK_OBJECT(VkPipelineLayout);
+REGISTER_VK_OBJECT(VkPipeline);
+REGISTER_VK_OBJECT(VkSemaphore);
 
 // Implementation
 template<typename T>

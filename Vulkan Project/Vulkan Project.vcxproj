@@ -70,8 +70,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>C:\VulkanSDK\1.0.46.0\Include;C:\Users\mark.junge\Documents\C++\projects\Vulkan Project\Vulkan Project\source;C:\Users\mark.junge\Documents\C++\include;$(IncludePath)</IncludePath>
-    <LibraryPath>C:\VulkanSDK\1.0.46.0\Lib32;C:\Users\mark.junge\Documents\C++\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>C:\VulkanSDK\1.0.46.0\Include;C:\Users\Nyrox\Documents\Development\C++\Projects\Vulkan\Vulkan Project\source;C:\Users\Nyrox\Documents\Development\C++\include;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\VulkanSDK\1.0.46.0\Lib32;C:\Users\Nyrox\Documents\Development\C++\lib;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <IncludePath>C:\VulkanSDK\1.0.46.0\Include;C:\Users\Nyrox\Documents\Development\C++\include;C:\Users\Nyrox\Documents\Development\C++\Projects\Vulkan\Vulkan Project\source;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\VulkanSDK\1.0.46.0\Lib32;C:\Users\Nyrox\Documents\Development\C++\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -89,6 +93,9 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+    <Link>
+      <AdditionalDependencies>vulkan-1.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -117,6 +124,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="source\Core\Util\FileUtil.cpp" />
     <ClCompile Include="source\Core\Vulkan\VDebug.cpp" />
     <ClCompile Include="source\Core\Vulkan\VDeleter.cpp" />
     <ClCompile Include="source\main.cpp" />
@@ -124,9 +132,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\Core\Definitions.h" />
+    <ClInclude Include="source\Core\Util\FileUtil.h" />
     <ClInclude Include="source\Core\Vulkan\VDeleter.h" />
     <ClInclude Include="source\Core\Vulkan\VDebug.h" />
     <ClInclude Include="source\Window\Window.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\compile.bat" />
+    <None Include="shaders\tri.frag" />
+    <None Include="shaders\tri.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
