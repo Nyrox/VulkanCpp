@@ -47,6 +47,9 @@
     <ClInclude Include="source\Core\Util\FileUtil.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
+    <ClInclude Include="source\Core\Render\Vertex.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\tri.vert" />

@@ -132,6 +132,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\Core\Definitions.h" />
+    <ClInclude Include="source\Core\Render\Vertex.h" />
     <ClInclude Include="source\Core\Util\FileUtil.h" />
     <ClInclude Include="source\Core\Vulkan\VDeleter.h" />
     <ClInclude Include="source\Core\Vulkan\VDebug.h" />
