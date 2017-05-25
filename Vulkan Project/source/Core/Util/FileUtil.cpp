@@ -20,4 +20,13 @@ namespace FUtil {
 		return buffer;
 	}
 
+	std::stringstream file_read_stringstream(const std::filesystem::path path) {
+		std::ifstream file(path);
+
+		std::stringstream stream;
+		stream << file.rdbuf();
+
+		file.close();
+		return stream;
+	}
 }

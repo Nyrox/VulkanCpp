@@ -10,6 +10,7 @@
 #include <vulkan/vulkan.hpp>
 #include <Window/Window.h>
 #include <Core/Render/Vertex.h>
+#include <Core/Render/Material.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -20,6 +21,12 @@
 #include <algorithm>
 #include <chrono>
 
+#include <Core/MeshLoaders/Ply.h>
+
+#include <Core/Vulkan/DeviceLocalBuffer.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/image.h>
 
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_LUNARG_standard_validation",
@@ -35,7 +42,6 @@ constexpr bool enableValidationLayers = false;
 #else
 constexpr bool enableValidationLayers = true;
 #endif
-
 
 struct GeneralRenderUniforms {
 	glm::mat4 model;
@@ -194,7 +200,10 @@ bool isDeviceSuitable(vk::PhysicalDevice device, vk::SurfaceKHR surface) {
 		return !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
 	};
 
-	return indices.isComplete() && checkDeviceExtensionSupport() && checkSwapChainSupport();
+	vk::PhysicalDeviceFeatures supportedFeatures = device.getFeatures();
+
+	return indices.isComplete() && checkDeviceExtensionSupport() && checkSwapChainSupport() 
+		&& (supportedFeatures.samplerAnisotropy);
 }
 
 vk::PhysicalDevice createPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
@@ -234,6 +243,7 @@ void createLogicalDevice(vk::Device& device, vk::PhysicalDevice pDevice, vk::Sur
 
 	// Insert any dank features here
 	vk::PhysicalDeviceFeatures deviceFeatures = {};
+	deviceFeatures.samplerAnisotropy = true;
 
 	vk::DeviceCreateInfo createInfo = {};
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
@@ -354,25 +364,11 @@ std::tuple<vk::Format, vk::Extent2D> createSwapChain(vk::Instance instance, vk::
 	return { surfaceFormat.format, extent };
 }
 
-void createImageViews(std::vector<vk::ImageView>& swapChainImageViews, const std::vector<vk::Image>& swapChainImages, const vk::Device& device, vk::Format format) {
+void createImageViews(VulkanInstance& vulkan, std::vector<vk::ImageView>& swapChainImageViews, const std::vector<vk::Image>& swapChainImages, vk::Format format) {
 	swapChainImageViews.resize(swapChainImages.size());
 	
 	for (uint32 i = 0; i < swapChainImages.size(); i++) {
-		vk::ImageViewCreateInfo createInfo = {};
-		createInfo.image = swapChainImages[i];
-		createInfo.viewType = vk::ImageViewType::e2D;
-		createInfo.format = format;
-		createInfo.components.r = vk::ComponentSwizzle::eIdentity;
-		createInfo.components.g = vk::ComponentSwizzle::eIdentity;
-		createInfo.components.b = vk::ComponentSwizzle::eIdentity;
-		createInfo.components.a = vk::ComponentSwizzle::eIdentity;
-		createInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-		createInfo.subresourceRange.baseMipLevel = 0;
-		createInfo.subresourceRange.levelCount = 1;
-		createInfo.subresourceRange.baseArrayLayer = 0;
-		createInfo.subresourceRange.layerCount = 1;
-
-		swapChainImageViews[i] = device.createImageView(createInfo);
+		swapChainImageViews[i] = VkUtil::createImageView(vulkan, swapChainImages[i], format, vk::ImageAspectFlagBits::eColor);
 	}
 
 }
@@ -400,21 +396,40 @@ void createRenderPass(vk::Device device, vk::RenderPass& renderPass, vk::Format 
 	colorAttachment.initialLayout = vk::ImageLayout::eUndefined;
 	colorAttachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
 	
-
 	vk::AttachmentReference colorAttachmentRef = { 0 };
 	colorAttachmentRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+
+	vk::AttachmentDescription depthAttachment = {};
+	depthAttachment.format = vk::Format::eD32Sfloat;
+	depthAttachment.samples = vk::SampleCountFlagBits::e1;
+	depthAttachment.loadOp = vk::AttachmentLoadOp::eClear;
+	depthAttachment.storeOp = vk::AttachmentStoreOp::eDontCare;
+	depthAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+	depthAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+	depthAttachment.initialLayout = vk::ImageLayout::eUndefined;
+	depthAttachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+
+	vk::AttachmentReference depthAttachmentRef = {};
+	depthAttachmentRef.layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+	depthAttachmentRef.attachment = 1;
 
 	vk::SubpassDescription subpass = {};
 	subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
+	subpass.pDepthStencilAttachment = &depthAttachmentRef;
+
+
+	std::array<vk::AttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
 
 	vk::RenderPassCreateInfo renderPassInfo = {};
-	renderPassInfo.attachmentCount = 1;
-	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.attachmentCount = attachments.size();
+	renderPassInfo.pAttachments = attachments.data();
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 	
+
 	vk::SubpassDependency dependency = {};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0;
@@ -429,7 +444,7 @@ void createRenderPass(vk::Device device, vk::RenderPass& renderPass, vk::Format 
 	renderPass = device.createRenderPass(renderPassInfo);
 }
 
-void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::DescriptorSetLayout& descriptorSetLayout, vk::PipelineLayout& pipelineLayout, vk::Pipeline& pipeline, vk::ShaderModule vertexShaderModule, vk::ShaderModule fragmentShaderModule, vk::Extent2D extent) {
+void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::DescriptorSetLayout& descriptorSetLayout, vk::PipelineLayout& pipelineLayout, vk::Pipeline& pipeline, vk::ShaderModule vertexShaderModule, vk::ShaderModule fragmentShaderModule, vk::Extent2D extent, Material& material) {
 	vk::PipelineShaderStageCreateInfo vertShaderStageInfo = {};
 	vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
 	vertShaderStageInfo.module = vertexShaderModule;
@@ -500,30 +515,49 @@ void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::Descriptor
 	
 	// Create descriptor set layout
 	{
+		
 		vk::DescriptorSetLayoutBinding uboLayoutBinding = {};
 		uboLayoutBinding.binding = 0;
 		uboLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
 		uboLayoutBinding.descriptorCount = 1;
 
+		vk::DescriptorSetLayoutBinding samplerLayoutBinding = {};
+		samplerLayoutBinding.binding = 1;
+		samplerLayoutBinding.descriptorCount = 1;
+		samplerLayoutBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+		samplerLayoutBinding.pImmutableSamplers = nullptr;
+		samplerLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
 		uboLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
 		uboLayoutBinding.pImmutableSamplers = nullptr;
 
+		std::array<vk::DescriptorSetLayoutBinding, 3> bindings = { uboLayoutBinding, samplerLayoutBinding };
+
 		vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
-		layoutInfo.bindingCount = 1;
-		layoutInfo.pBindings = &uboLayoutBinding;
+		layoutInfo.bindingCount = 2;
+		layoutInfo.pBindings = bindings.data();
 
 		descriptorSetLayout = device.createDescriptorSetLayout(layoutInfo);
 	}
 
+	vk::PipelineDepthStencilStateCreateInfo depthStencil = {};
+	depthStencil.depthTestEnable = true;
+	depthStencil.depthWriteEnable = true;
+	depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
+	depthStencil.depthBoundsTestEnable = false;
+
+	auto materialLayout = material.getDescriptorSetLayout(device);
+	auto setLayouts = { descriptorSetLayout, materialLayout };
+
 	vk::PipelineLayoutCreateInfo pipelineLayoutInfo = {};
-	pipelineLayoutInfo.setLayoutCount = 1;
-	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+	pipelineLayoutInfo.setLayoutCount = setLayouts.size();
+	pipelineLayoutInfo.pSetLayouts = setLayouts.begin();
 	pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
 	pipelineLayoutInfo.pPushConstantRanges = 0; // Optional
 
 	// Create pipeline layout
 	pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
-
+	
 	// Create pipeline
 
 	vk::GraphicsPipelineCreateInfo pipelineInfo = {};
@@ -534,7 +568,7 @@ void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::Descriptor
 	pipelineInfo.pViewportState = &viewportState;
 	pipelineInfo.pRasterizationState = &rasterizer;
 	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pDepthStencilState = nullptr; // Optional
+	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = nullptr; // Optional
 	pipelineInfo.layout = pipelineLayout;
@@ -551,12 +585,9 @@ void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::Descriptor
 int main() {
 	Window window(1280, 720, "Praise kek");
 
-	const std::vector<Vertex> vertices = {
-		{ { 0.0f, -0.5f, 0 },{ 1.0f, 0.0f, 0.0f } },
-		{ { 0.5f, 0.5f, 0 },{ 0.0f, 1.0f, 0.0f } },
-		{ { -0.5f, 0.5f, 0 },{ 0.0f, 0.0f, 1.0f } }
-	};
-	
+	Mesh tableMesh = MeshLoaders::load_ply("meshes/table.ply");
+	Material pbrMaterial;
+
 	vk::Instance instance;
 	vk::DebugReportCallbackEXT debugCallback;
 	vk::PhysicalDevice pDevice;
@@ -581,9 +612,6 @@ int main() {
 	vk::CommandPool commandPool;
 	std::vector<vk::CommandBuffer> commandBuffers;
 
-	vk::Buffer vertexBuffer;
-	vk::DeviceMemory vertexBufferMemory;
-
 	vk::DescriptorSetLayout descriptorSetLayout;
 	vk::DescriptorPool descriptorPool;
 	vk::DescriptorSet descriptorSet;
@@ -593,6 +621,19 @@ int main() {
 
 	vk::Semaphore imageAvailableSemaphore, renderFinishedSemaphore;
 
+	vk::Image textureImage;
+	vk::DeviceMemory textureImageMemory;
+	vk::ImageView textureImageView;
+	vk::Sampler textureImageSampler;
+
+	vk::Image depthImage;
+	vk::ImageView depthImageView;
+	vk::DeviceMemory depthImageMemory;
+
+	VulkanInstance vulkan;
+
+	DeviceLocalBuffer vertexBuffer(vulkan, vk::BufferUsageFlagBits::eVertexBuffer);
+	DeviceLocalBuffer indexBuffer(vulkan, vk::BufferUsageFlagBits::eIndexBuffer);
 
 	auto cleanup_globals = [&]() {
 		
@@ -602,18 +643,27 @@ int main() {
 	try {
 		createVulkanInstance(instance);
 		createDebugCallback(instance, debugCallback);
+		vulkan.instance = instance;
 
 		createSurface(instance, surface, window.nativeHandle);
+		vulkan.surface = surface;
 
 		pDevice = createPhysicalDevice(instance, surface);
+		vulkan.physicalDevice = pDevice;
 
 		createLogicalDevice(device, pDevice, surface, presentQueue, graphicsQueue);
+		vulkan.device = device;
 
 		auto si = createSwapChain(instance, swapChain, pDevice, surface, device, swapChainImages);
 		format = std::get<vk::Format>(si);
 		extent = std::get<vk::Extent2D>(si);
 
-		createImageViews(swapChainImageViews, swapChainImages, device, format);
+		vulkan.graphicsQueue = graphicsQueue;
+		vulkan.presentQueue = presentQueue;
+		vulkan.utilityPool = commandPool;
+		
+
+		createImageViews(vulkan, swapChainImageViews, swapChainImages, format);
 	
 		auto vertShaderCode = FUtil::file_read_binary("shaders/vert.spv");
 		auto fragShaderCode = FUtil::file_read_binary("shaders/frag.spv");
@@ -622,24 +672,9 @@ int main() {
 		createShaderModule(fragShaderCode, device, fragmentShaderModule);
 
 		createRenderPass(device, renderPass, format);
-		createPipeline(device, renderPass, descriptorSetLayout, pipelineLayout, graphicsPipeline, vertexShaderModule, fragmentShaderModule, extent);
+		createPipeline(device, renderPass, descriptorSetLayout, pipelineLayout, graphicsPipeline, vertexShaderModule, fragmentShaderModule, extent, pbrMaterial);
 		
-		swapChainFramebuffers.resize(swapChainImageViews.size());
-		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-			vk::ImageView attachments[] = {
-				swapChainImageViews[i]
-			};
 
-			vk::FramebufferCreateInfo framebufferInfo = {};
-			framebufferInfo.renderPass = renderPass;
-			framebufferInfo.attachmentCount = 1;
-			framebufferInfo.pAttachments = attachments;
-			framebufferInfo.width = extent.width;
-			framebufferInfo.height = extent.height;
-			framebufferInfo.layers = 1;
-
-			swapChainFramebuffers[i] = device.createFramebuffer(framebufferInfo);
-		}
 
 
 		// Create command pool
@@ -650,43 +685,43 @@ int main() {
 			poolInfo.queueFamilyIndex = indices.graphicsFamily;
 
 			commandPool = device.createCommandPool(poolInfo);
+
+			// Use the graphics family as our utility pool since it supports what we need
+			vulkan.createUtilityPool(indices.graphicsFamily);
+		}
+		
+		
+
+		// Create depth buffer
+		{
+			vk::Format depthFormat = vk::Format::eD32Sfloat;
+			VkUtil::createImage(vulkan, depthImage, depthImageMemory, extent, depthFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
+			depthImageView = VkUtil::createImageView(vulkan, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
+			VkUtil::transitionImageLayout(vulkan, depthImage, depthFormat, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 		}
 
-		// Create vertex buffer
-		vk::BufferCreateInfo bufferInfo = {};
-		bufferInfo.size = sizeof(vertices[0]) * vertices.size();
-		bufferInfo.usage = vk::BufferUsageFlagBits::eVertexBuffer;
-		bufferInfo.sharingMode = vk::SharingMode::eExclusive;
+		// Create framebuffers
+		swapChainFramebuffers.resize(swapChainImageViews.size());
+		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+			vk::ImageView attachments[] = {
+				swapChainImageViews[i],
+				depthImageView
+			};
 
-		vertexBuffer = device.createBuffer(bufferInfo);
+			vk::FramebufferCreateInfo framebufferInfo = {};
+			framebufferInfo.renderPass = renderPass;
+			framebufferInfo.attachmentCount = 2;
+			framebufferInfo.pAttachments = attachments;
+			framebufferInfo.width = extent.width;
+			framebufferInfo.height = extent.height;
+			framebufferInfo.layers = 1;
 
-		vk::MemoryRequirements memoryRequirements = device.getBufferMemoryRequirements(vertexBuffer);
+			swapChainFramebuffers[i] = device.createFramebuffer(framebufferInfo);
+		}
 
-		auto findMemoryType = [&](uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
-			vk::PhysicalDeviceMemoryProperties memProperties = pDevice.getMemoryProperties();
-
-			for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-				if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-					return i;
-				}
-			}
-
-			throw std::runtime_error("failed to find suitable memory type!");
-		};
-
-
-		vk::MemoryAllocateInfo allocInfo = {};
-		allocInfo.allocationSize = memoryRequirements.size;
-		allocInfo.memoryTypeIndex = findMemoryType(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-		vertexBufferMemory = device.allocateMemory(allocInfo);
-		device.bindBufferMemory(vertexBuffer, vertexBufferMemory, 0);
-
-		void* data;
-		data = device.mapMemory(vertexBufferMemory, 0, bufferInfo.size);
-		memcpy(data, vertices.data(), (size_t)bufferInfo.size);
-		device.unmapMemory(vertexBufferMemory);
-
+		// Create vertex buffer		
+		vertexBuffer.fill(tableMesh.vertices.data(), tableMesh.vertices.size() * sizeof(Vertex));
+		indexBuffer.fill(tableMesh.indices.data(), tableMesh.indices.size() * sizeof(uint32));
 
 		// Create uniform buffers
 		{
@@ -722,15 +757,68 @@ int main() {
 			device.bindBufferMemory(uniformBuffer, uniformBufferMemory, 0);
 		}
 
+		// Load texture
+		{
+			int texWidth, texHeight, texChannels;
+			uint8* pixels = stbi_load("textures/test.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+			vk::DeviceSize imageSize = texWidth * texHeight * 4;
+
+			if (!pixels) throw std::runtime_error("Failed to load texture.");
+			
+			vk::Buffer stagingBuffer;
+			vk::DeviceMemory stagingBufferMemory;
+
+			VkUtil::createBuffer(vulkan, imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
+
+			void* data = device.mapMemory(stagingBufferMemory, 0, imageSize);
+			memcpy(data, pixels, imageSize);
+			device.unmapMemory(stagingBufferMemory);
+
+			stbi_image_free(pixels);
+
+			vk::Extent2D imgExtent = { (uint32)texWidth, (uint32)texHeight };
+
+			VkUtil::createImage(vulkan, textureImage, textureImageMemory, imgExtent, vk::Format::eR8G8B8A8Unorm, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
+			VkUtil::transitionImageLayout(vulkan, textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageLayout::ePreinitialized, vk::ImageLayout::eTransferDstOptimal);
+			VkUtil::copyBufferToImage(vulkan, stagingBuffer, textureImage, imgExtent);
+			VkUtil::transitionImageLayout(vulkan, textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+
+			device.destroyBuffer(stagingBuffer);
+			device.freeMemory(stagingBufferMemory);
+
+			// Create image view
+			textureImageView = VkUtil::createImageView(vulkan, textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageAspectFlagBits::eColor);
+			
+			// Create texture sampler
+			vk::SamplerCreateInfo samplerInfo = {};
+			samplerInfo.magFilter = vk::Filter::eLinear;
+			samplerInfo.minFilter = vk::Filter::eLinear;
+			samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
+			samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
+			samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
+			samplerInfo.anisotropyEnable = true;
+			samplerInfo.maxAnisotropy = 16.f;
+			samplerInfo.unnormalizedCoordinates = false;
+			samplerInfo.compareEnable = false;
+			samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
+			samplerInfo.mipLodBias = 0.0f;
+			samplerInfo.minLod = 0.0f;
+			samplerInfo.maxLod = 0.0f;
+			
+			textureImageSampler = device.createSampler(samplerInfo);
+		}
+
 		// Create descriptor pool
 		{
-			vk::DescriptorPoolSize poolSize = {};
-			poolSize.type = vk::DescriptorType::eUniformBuffer;
-			poolSize.descriptorCount = 1;
+			std::array<vk::DescriptorPoolSize, 2> poolSizes = {};
+			poolSizes[0].type = vk::DescriptorType::eUniformBuffer;
+			poolSizes[0].descriptorCount = 1;
+			poolSizes[1].type = vk::DescriptorType::eCombinedImageSampler;
+			poolSizes[1].descriptorCount = 1;
 
 			vk::DescriptorPoolCreateInfo poolInfo = {};
-			poolInfo.poolSizeCount = 1;
-			poolInfo.pPoolSizes = &poolSize;
+			poolInfo.poolSizeCount = poolSizes.size();
+			poolInfo.pPoolSizes = poolSizes.data();
 			poolInfo.maxSets = 1;
 
 			descriptorPool = device.createDescriptorPool(poolInfo);	
@@ -751,18 +839,28 @@ int main() {
 			bufferInfo.offset = 0;
 			bufferInfo.range = sizeof(GeneralRenderUniforms);
 
-			vk::WriteDescriptorSet descriptorWrite = {};
-			descriptorWrite.dstSet = descriptorSet;
-			descriptorWrite.dstBinding = 0;
-			descriptorWrite.dstArrayElement = 0;
+			vk::DescriptorImageInfo imageInfo = {};
+			imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+			imageInfo.imageView = textureImageView;
+			imageInfo.sampler = textureImageSampler;
+			
+			std::array<vk::WriteDescriptorSet, 2> descriptorWrites = {};
 
-			descriptorWrite.descriptorType = vk::DescriptorType::eUniformBuffer;
-			descriptorWrite.descriptorCount = 1;
-			descriptorWrite.pBufferInfo = &bufferInfo;
-			descriptorWrite.pImageInfo = nullptr; // Optional
-			descriptorWrite.pTexelBufferView = nullptr; // Optional
+			descriptorWrites[0].dstSet = descriptorSet;
+			descriptorWrites[0].dstBinding = 0;
+			descriptorWrites[0].dstArrayElement = 0;
+			descriptorWrites[0].descriptorType = vk::DescriptorType::eUniformBuffer;
+			descriptorWrites[0].descriptorCount = 1;
+			descriptorWrites[0].pBufferInfo = &bufferInfo;
 
-			device.updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+			descriptorWrites[1].dstSet = descriptorSet;
+			descriptorWrites[1].dstBinding = 1;
+			descriptorWrites[1].dstArrayElement = 0;
+			descriptorWrites[1].descriptorType = vk::DescriptorType::eCombinedImageSampler;
+			descriptorWrites[1].descriptorCount = 1;
+			descriptorWrites[1].pImageInfo = &imageInfo;
+
+			device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
 
 
@@ -788,26 +886,29 @@ int main() {
 				beginInfo.pInheritanceInfo = nullptr; // Optional
 
 				commandBuffer.begin(beginInfo);
-				
+
 				vk::RenderPassBeginInfo renderPassInfo = {};
 				renderPassInfo.renderPass = renderPass;
 				renderPassInfo.framebuffer = swapChainFramebuffers[i];
 				renderPassInfo.renderArea.offset = { 0, 0 };
 				renderPassInfo.renderArea.extent = extent;
 
-				vk::ClearValue clearColor = { vk::ClearColorValue(std::array<float, 4>{0.05f, 0.05f, 0.05f, 1.0f }) };
-				renderPassInfo.clearValueCount = 1;
-				renderPassInfo.pClearValues = &clearColor;
+				std::array<vk::ClearValue, 2> clearColors = {};
+				clearColors[0].color = vk::ClearColorValue(std::array<float, 4>{ 0.05f, 0.05f, 0.05f, 1.0f });
+				clearColors[1].depthStencil = { 1.0, 0 };
+
+				renderPassInfo.clearValueCount = 2;
+				renderPassInfo.pClearValues = clearColors.data();
 
 				commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
 				commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
 				commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
-				vk::Buffer vertexBuffers[] = { vertexBuffer };
 				vk::DeviceSize offsets[] = { 0 };
 				
-				commandBuffer.bindVertexBuffers(0, 1, &vertexBuffer, offsets);
-				commandBuffer.draw(3, 1, 0, 0);
+				commandBuffer.bindVertexBuffers(0, 1, &vertexBuffer.buffer, offsets);
+				commandBuffer.bindIndexBuffer(indexBuffer.buffer, 0, vk::IndexType::eUint32);
+				commandBuffer.drawIndexed(static_cast<uint32>(tableMesh.indices.size()), 1, 0, 0, 0);
 				commandBuffer.endRenderPass();
 				commandBuffer.end();
 			}
@@ -827,29 +928,38 @@ int main() {
 	
 	
 
-
-
-
+	auto projection = glm::perspective(glm::radians(45.0f), extent.width / (float)extent.height, 0.1f, 100.0f);
+	auto view = glm::lookAt(glm::vec3(5.0f, 5.0f, 10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));;
+	projection[1][1] *= -1;
+	GeneralRenderUniforms ubo = {};
+	
+	ubo.view = view;
+	ubo.projection = projection;
 	while (window.isOpen()) {
-		glfwPollEvents();
+		glfwPollEvents();		
 
 		// Update uniforms
 		{
 			static auto startTime = std::chrono::high_resolution_clock().now();
-			
+			static auto i = 0;
+			i++;
+
 			auto currentTime = std::chrono::high_resolution_clock().now();
 			float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.f;
 
-			GeneralRenderUniforms ubo = {};
+			
 			ubo.model = glm::rotate(glm::mat4(), time * glm::radians(90.f), glm::vec3(0.0, 0.0, 1.0));
-			ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-			ubo.projection = glm::perspective(glm::radians(45.0f), extent.width / (float)extent.height, 0.1f, 10.0f);
-			ubo.projection[1][1] *= -1;
 
 			void* data;
 			data = device.mapMemory(uniformBufferMemory, 0, sizeof(ubo));
 			memcpy(data, &ubo, sizeof(ubo));
 			device.unmapMemory(uniformBufferMemory);
+
+			// 10 seconds passed
+			if (time > 10) {
+				std::cout << "Rendered " << i << " frames in 10 seconds.\nFPS: " << i / 10 << "\n";
+				std::cin.get();
+			}
 		}
 
 		// render
