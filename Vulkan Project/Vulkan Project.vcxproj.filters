@@ -21,9 +21,6 @@
     <ClCompile Include="source\Window\Window.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
-    <ClCompile Include="source\Core\Vulkan\VDeleter.cpp">
-      <Filter>Quelldateien</Filter>
-    </ClCompile>
     <ClCompile Include="source\Core\Vulkan\VDebug.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
@@ -48,9 +45,6 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="source\Core\Definitions.h">
-      <Filter>Headerdateien</Filter>
-    </ClInclude>
-    <ClInclude Include="source\Core\Vulkan\VDeleter.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="source\Core\Vulkan\VDebug.h">

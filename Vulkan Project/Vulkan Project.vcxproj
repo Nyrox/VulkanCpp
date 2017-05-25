@@ -133,7 +133,6 @@
     <ClCompile Include="source\Core\Util\FileUtil.cpp" />
     <ClCompile Include="source\Core\Util\StringUtil.cpp" />
     <ClCompile Include="source\Core\Vulkan\VDebug.cpp" />
-    <ClCompile Include="source\Core\Vulkan\VDeleter.cpp" />
     <ClCompile Include="source\Core\Vulkan\DeviceLocalBuffer.cpp" />
     <ClCompile Include="source\Core\Vulkan\VkUtil.cpp" />
     <ClCompile Include="source\main.cpp" />
@@ -147,7 +146,6 @@
     <ClInclude Include="source\Core\Render\Vertex.h" />
     <ClInclude Include="source\Core\Util\FileUtil.h" />
     <ClInclude Include="source\Core\Util\StringUtil.h" />
-    <ClInclude Include="source\Core\Vulkan\VDeleter.h" />
     <ClInclude Include="source\Core\Vulkan\VDebug.h" />
     <ClInclude Include="source\Core\Vulkan\DeviceLocalBuffer.h" />
     <ClInclude Include="source\Core\Vulkan\VkUtil.h" />

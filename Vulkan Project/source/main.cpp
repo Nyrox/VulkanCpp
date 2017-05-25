@@ -2,7 +2,6 @@
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 
-#include <Core/Vulkan/VDeleter.h>
 #include <Core/Vulkan/VDebug.h>
 #include <Core/Util/FileUtil.h>
 
