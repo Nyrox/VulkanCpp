@@ -1,4 +1,5 @@
 #include "DeviceLocalBuffer.h"
+#include <Core/Vulkan/VkUtil.h>
 
 DeviceLocalBuffer::DeviceLocalBuffer(VulkanInstance& t_vulkan, vk::BufferUsageFlags t_flags) : vulkan(t_vulkan), usageFlags(t_flags) {
 

@@ -1,13 +1,13 @@
 #pragma once
 #include <Core/Definitions.h>
 #include <Core/Vulkan/VulkanInstance.h>
-#include <Core/Vulkan/VkUtil.h>
 
 /*
-	Provides a simple to use interface with a device local vertex buffer.
+	Provides a simple to use interface with a device local buffer.
 	As such it provides super high performance perfect for rarely changing vertex or index buffers.
 
-	It however requires that the entire buffer be updated as a whole.
+	It however requires that the entire buffer be updated as a whole and uses a staging buffer for 
+	transfering data to the gpu. As such frequent updates are gonna be slower than using a HostVisibleBuffer.
 */
 
 class DeviceLocalBuffer {
@@ -18,7 +18,7 @@ public:
 	/* Fills the current buffer. If dataSize is unequal to the current size of the buffer, it also calls this::resize. */
 	void fill(void* data, uint32 dataSize);
 
-	/* Deletes the current buffer and replaces them with new ones */
+	/* Deletes the current buffers and replaces them with new ones */
 	void resize(uint32 bufferSize);
 
 

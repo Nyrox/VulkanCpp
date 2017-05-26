@@ -2,51 +2,35 @@
 #include <Core/Definitions.h>
 #include <vulkan/vulkan.hpp>
 
+struct GLFWwindow;
+
 struct VulkanInstance {
+	VulkanInstance();
+	~VulkanInstance();
+
 	vk::Instance instance;
 	vk::PhysicalDevice physicalDevice;
 	vk::Device device;
 	vk::SurfaceKHR surface;
-
+	vk::DebugReportCallbackEXT debugCallback;
 
 	vk::Queue graphicsQueue;
 	vk::Queue presentQueue;
 
 
 	vk::CommandPool utilityPool;
-	void createUtilityPool(uint32 queueFamily) {
-		vk::CommandPoolCreateInfo poolInfo = {};
-		poolInfo.queueFamilyIndex = queueFamily;
+	void createUtilityPool(uint32 queueFamilyIndex);
 
-		utilityPool = device.createCommandPool(poolInfo);
-	}
+	vk::CommandBuffer getSingleUseCommandBuffer();
+	void returnSingleUseCommandBuffer(vk::CommandBuffer commandBuffer);
 
-	vk::CommandBuffer getSingleUseCommandBuffer() {
-		vk::CommandBufferAllocateInfo allocInfo = {};
-		allocInfo.level = vk::CommandBufferLevel::ePrimary;
-		allocInfo.commandPool = utilityPool;
-		allocInfo.commandBufferCount = 1;
+	void createVulkanInstance();
+	void createSurface(GLFWwindow* window);
+	void createPhysicalDevice();
+	void createLogicalDevice();
+private:
 
-		vk::CommandBuffer commandBuffer = device.allocateCommandBuffers({ allocInfo })[0];
 
-		vk::CommandBufferBeginInfo beginInfo = {};
-		beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-
-		commandBuffer.begin(beginInfo);
-		return commandBuffer;
-	}
-
-	void returnSingleUseCommandBuffer(vk::CommandBuffer commandBuffer) {
-		commandBuffer.end();
-
-		vk::SubmitInfo submitInfo = {};
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffer;
-
-		graphicsQueue.submit(submitInfo, nullptr);
-		graphicsQueue.waitIdle();
-	
-		device.freeCommandBuffers(utilityPool, 1, &commandBuffer);
-	}
-
+	std::vector<const char*> getRequiredExtensions() const;
+	bool checkValidationLayerSupport() const;
 };

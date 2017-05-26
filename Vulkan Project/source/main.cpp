@@ -23,6 +23,7 @@
 #include <Core/MeshLoaders/Ply.h>
 
 #include <Core/Vulkan/DeviceLocalBuffer.h>
+#include <Core/Vulkan/HostCoherentBuffer.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/image.h>
@@ -42,18 +43,12 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
+
 struct GeneralRenderUniforms {
 	glm::mat4 model;
 	glm::mat4 view;
 	glm::mat4 projection;
 };
-
-VKAPI_ATTR vk::Bool32 VKAPI_CALL vulkan_debugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objType, uint64 obj, size_t location, int32 code, const char* layerPrefix, const char* msg, void* userData) {
-
-	std::cerr << "Validation layer: " << msg << std::endl;
-
-	return VK_FALSE;
-}
 
 struct SwapChainSupportDetails {
 	vk::SurfaceCapabilitiesKHR capabilities;
@@ -63,91 +58,6 @@ struct SwapChainSupportDetails {
 
 
 SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice pDevice, vk::SurfaceKHR surface);
-
-bool checkValidationLayerSupport() {
-	auto availableLayers = vk::enumerateInstanceLayerProperties();
-
-	for (const char* layerName : validationLayers) {
-		bool layerFound = false;
-
-		for (const auto& layerProperties : availableLayers) {
-			if (strcmp(layerName, layerProperties.layerName) == 0) {
-				layerFound = true;
-				break;
-			}
-		}
-
-		if (!layerFound) return false;
-	}
-
-	return true;
-}
-std::vector<const char*> getRequiredExtensions() {
-	std::vector<const char*> extensions;
-
-	uint32 glfwExtensionCount = 0;
-	const char** glfwExtensions;
-	glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-	for (unsigned int i = 0; i < glfwExtensionCount; i++) {
-		extensions.push_back(glfwExtensions[i]);
-	}
-
-	if (enableValidationLayers) {
-		extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-	}
-
-	return extensions;
-}
-
-void createVulkanInstance(vk::Instance& instance) {
-	vk::ApplicationInfo appInfo = {};
-	appInfo.pApplicationName = "Praise kek";
-	appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-	appInfo.pEngineName = "No Engine";
-	appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-	appInfo.apiVersion = VK_API_VERSION_1_0;
-
-	vk::InstanceCreateInfo createInfo = {};
-	createInfo.pApplicationInfo = &appInfo;	
-
-	// Query supported extensions and output them to the screen
-	{
-		auto extensions = vk::enumerateInstanceExtensionProperties();
-
-		std::cout << "Available extensions: " << "\n";
-		for (const auto& extension : extensions) {
-			std::cout << "\t" << extension.extensionName << "\n";
-		}
-	}
-
-	// Force enable extensions needed by GLFW
-	auto extensions = getRequiredExtensions();
-	createInfo.enabledExtensionCount = extensions.size();
-	createInfo.ppEnabledExtensionNames = extensions.data();
-
-	// Enable validation layers
-	if (enableValidationLayers && !checkValidationLayerSupport()) {
-		throw std::runtime_error("Validation layers requested, but not available! Try installing the Lunar Vulkan SDK if you haven't already.");
-	}
-
-	if (enableValidationLayers) {
-		createInfo.enabledLayerCount = validationLayers.size();
-		createInfo.ppEnabledLayerNames = validationLayers.data();
-	}
-	else {
-		createInfo.enabledLayerCount = 0;
-	}
-
-	instance = vk::createInstance(createInfo);
-}
-void createDebugCallback(vk::Instance instance, vk::DebugReportCallbackEXT& debugCallback) {
-	vk::DebugReportCallbackCreateInfoEXT createInfo;
-	createInfo.flags = vk::DebugReportFlagBitsEXT::eError | vk::DebugReportFlagBitsEXT::eWarning;
-	createInfo.pfnCallback = vulkan_debugCallback;
-	
-	debugCallback = instance.createDebugReportCallbackEXT(createInfo);
-}
 
 struct QueueFamilyIndices {
 	int graphicsFamily = -1;
@@ -267,11 +177,6 @@ void createLogicalDevice(vk::Device& device, vk::PhysicalDevice pDevice, vk::Sur
 	presentQueue = device.getQueue(indices.presentFamily, 0);
 }
 
-void createSurface(vk::Instance instance, vk::SurfaceKHR& surface, GLFWwindow* window) {
-	if (glfwCreateWindowSurface(static_cast<VkInstance>(instance), window, nullptr, reinterpret_cast<VkSurfaceKHR*>(&surface)) != VK_SUCCESS) {
-		throw std::runtime_error("Failed to create window surface!");
-	}
-}
 
 SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice pDevice, vk::SurfaceKHR surface) {
 	SwapChainSupportDetails details;
@@ -587,11 +492,10 @@ int main() {
 	Mesh tableMesh = MeshLoaders::load_ply("meshes/table.ply");
 	Material pbrMaterial;
 
-	vk::Instance instance;
-	vk::DebugReportCallbackEXT debugCallback;
-	vk::PhysicalDevice pDevice;
-	vk::Device device;
-	vk::SurfaceKHR surface;
+	VulkanInstance vulkan;
+	vulkan.createVulkanInstance();
+	vulkan.createSurface(window.nativeHandle);
+
 	vk::SwapchainKHR swapChain;
 
 	vk::Queue graphicsQueue, presentQueue;
@@ -614,9 +518,6 @@ int main() {
 	vk::DescriptorSetLayout descriptorSetLayout;
 	vk::DescriptorPool descriptorPool;
 	vk::DescriptorSet descriptorSet;
-	
-	vk::Buffer uniformBuffer;
-	vk::DeviceMemory uniformBufferMemory;
 
 	vk::Semaphore imageAvailableSemaphore, renderFinishedSemaphore;
 
@@ -629,31 +530,18 @@ int main() {
 	vk::ImageView depthImageView;
 	vk::DeviceMemory depthImageMemory;
 
-	VulkanInstance vulkan;
 
 	DeviceLocalBuffer vertexBuffer(vulkan, vk::BufferUsageFlagBits::eVertexBuffer);
 	DeviceLocalBuffer indexBuffer(vulkan, vk::BufferUsageFlagBits::eIndexBuffer);
+	HostCoherentBuffer uniformBuffer(vulkan, vk::BufferUsageFlagBits::eUniformBuffer);
 
-	auto cleanup_globals = [&]() {
-		
-		instance.destroy();
-	};
 
 	try {
-		createVulkanInstance(instance);
-		createDebugCallback(instance, debugCallback);
-		vulkan.instance = instance;
+		
+		vulkan.physicalDevice = createPhysicalDevice(vulkan.instance, vulkan.surface);
+		createLogicalDevice(vulkan.device, vulkan.physicalDevice, vulkan.surface, presentQueue, graphicsQueue);
 
-		createSurface(instance, surface, window.nativeHandle);
-		vulkan.surface = surface;
-
-		pDevice = createPhysicalDevice(instance, surface);
-		vulkan.physicalDevice = pDevice;
-
-		createLogicalDevice(device, pDevice, surface, presentQueue, graphicsQueue);
-		vulkan.device = device;
-
-		auto si = createSwapChain(instance, swapChain, pDevice, surface, device, swapChainImages);
+		auto si = createSwapChain(vulkan.instance, swapChain, vulkan.physicalDevice, vulkan.surface, vulkan.device, swapChainImages);
 		format = std::get<vk::Format>(si);
 		extent = std::get<vk::Extent2D>(si);
 
@@ -667,23 +555,23 @@ int main() {
 		auto vertShaderCode = FUtil::file_read_binary("shaders/vert.spv");
 		auto fragShaderCode = FUtil::file_read_binary("shaders/frag.spv");
 
-		createShaderModule(vertShaderCode, device, vertexShaderModule);
-		createShaderModule(fragShaderCode, device, fragmentShaderModule);
+		createShaderModule(vertShaderCode, vulkan.device, vertexShaderModule);
+		createShaderModule(fragShaderCode, vulkan.device, fragmentShaderModule);
 
-		createRenderPass(device, renderPass, format);
-		createPipeline(device, renderPass, descriptorSetLayout, pipelineLayout, graphicsPipeline, vertexShaderModule, fragmentShaderModule, extent, pbrMaterial);
+		createRenderPass(vulkan.device, renderPass, format);
+		createPipeline(vulkan.device, renderPass, descriptorSetLayout, pipelineLayout, graphicsPipeline, vertexShaderModule, fragmentShaderModule, extent, pbrMaterial);
 		
 
-
+		uniformBuffer.resize(sizeof(GeneralRenderUniforms));
 
 		// Create command pool
 		{
-			auto indices = findQueueFamilies(pDevice, surface);
+			auto indices = findQueueFamilies(vulkan.physicalDevice, vulkan.surface);
 
 			vk::CommandPoolCreateInfo poolInfo = {};
 			poolInfo.queueFamilyIndex = indices.graphicsFamily;
 
-			commandPool = device.createCommandPool(poolInfo);
+			commandPool = vulkan.device.createCommandPool(poolInfo);
 
 			// Use the graphics family as our utility pool since it supports what we need
 			vulkan.createUtilityPool(indices.graphicsFamily);
@@ -715,46 +603,12 @@ int main() {
 			framebufferInfo.height = extent.height;
 			framebufferInfo.layers = 1;
 
-			swapChainFramebuffers[i] = device.createFramebuffer(framebufferInfo);
+			swapChainFramebuffers[i] = vulkan.device.createFramebuffer(framebufferInfo);
 		}
 
 		// Create vertex buffer		
 		vertexBuffer.fill(tableMesh.vertices.data(), tableMesh.vertices.size() * sizeof(Vertex));
 		indexBuffer.fill(tableMesh.indices.data(), tableMesh.indices.size() * sizeof(uint32));
-
-		// Create uniform buffers
-		{
-			vk::DeviceSize bufferSize = sizeof(GeneralRenderUniforms);
-
-			vk::BufferCreateInfo bufferInfo = {};
-			bufferInfo.size = bufferSize;
-			bufferInfo.usage = vk::BufferUsageFlagBits::eUniformBuffer;
-			bufferInfo.sharingMode = vk::SharingMode::eExclusive;
-
-			uniformBuffer = device.createBuffer(bufferInfo);
-
-			VkMemoryRequirements memoryRequirements = device.getBufferMemoryRequirements(uniformBuffer);
-
-			auto findMemoryType = [&](uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
-				vk::PhysicalDeviceMemoryProperties memProperties = pDevice.getMemoryProperties();
-
-				for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-					if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-						return i;
-					}
-				}
-
-				throw std::runtime_error("failed to find suitable memory type!");
-			};
-
-
-			vk::MemoryAllocateInfo allocInfo = {};
-			allocInfo.allocationSize = memoryRequirements.size;
-			allocInfo.memoryTypeIndex = findMemoryType(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-			uniformBufferMemory = device.allocateMemory(allocInfo);
-			device.bindBufferMemory(uniformBuffer, uniformBufferMemory, 0);
-		}
 
 		// Load texture
 		{
@@ -769,9 +623,9 @@ int main() {
 
 			VkUtil::createBuffer(vulkan, imageSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
 
-			void* data = device.mapMemory(stagingBufferMemory, 0, imageSize);
+			void* data = vulkan.device.mapMemory(stagingBufferMemory, 0, imageSize);
 			memcpy(data, pixels, imageSize);
-			device.unmapMemory(stagingBufferMemory);
+			vulkan.device.unmapMemory(stagingBufferMemory);
 
 			stbi_image_free(pixels);
 
@@ -782,8 +636,8 @@ int main() {
 			VkUtil::copyBufferToImage(vulkan, stagingBuffer, textureImage, imgExtent);
 			VkUtil::transitionImageLayout(vulkan, textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
 
-			device.destroyBuffer(stagingBuffer);
-			device.freeMemory(stagingBufferMemory);
+			vulkan.device.destroyBuffer(stagingBuffer);
+			vulkan.device.freeMemory(stagingBufferMemory);
 
 			// Create image view
 			textureImageView = VkUtil::createImageView(vulkan, textureImage, vk::Format::eR8G8B8A8Unorm, vk::ImageAspectFlagBits::eColor);
@@ -804,7 +658,7 @@ int main() {
 			samplerInfo.minLod = 0.0f;
 			samplerInfo.maxLod = 0.0f;
 			
-			textureImageSampler = device.createSampler(samplerInfo);
+			textureImageSampler = vulkan.device.createSampler(samplerInfo);
 		}
 
 		// Create descriptor pool
@@ -820,7 +674,7 @@ int main() {
 			poolInfo.pPoolSizes = poolSizes.data();
 			poolInfo.maxSets = 1;
 
-			descriptorPool = device.createDescriptorPool(poolInfo);	
+			descriptorPool = vulkan.device.createDescriptorPool(poolInfo);	
 		}
 
 		// Create descriptor set
@@ -831,10 +685,10 @@ int main() {
 			allocInfo.descriptorSetCount = 1;
 			allocInfo.pSetLayouts = layouts;
 
-			descriptorSet = device.allocateDescriptorSets(allocInfo)[0];
+			descriptorSet = vulkan.device.allocateDescriptorSets(allocInfo)[0];
 
 			vk::DescriptorBufferInfo bufferInfo = {};
-			bufferInfo.buffer = uniformBuffer;
+			bufferInfo.buffer = uniformBuffer.buffer;
 			bufferInfo.offset = 0;
 			bufferInfo.range = sizeof(GeneralRenderUniforms);
 
@@ -859,7 +713,7 @@ int main() {
 			descriptorWrites[1].descriptorCount = 1;
 			descriptorWrites[1].pImageInfo = &imageInfo;
 
-			device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+			vulkan.device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
 
 
@@ -871,7 +725,7 @@ int main() {
 			allocInfo.level = vk::CommandBufferLevel::ePrimary;
 			allocInfo.commandBufferCount = (uint32_t)commandBuffers.size();
 
-			commandBuffers = device.allocateCommandBuffers(allocInfo);
+			commandBuffers = vulkan.device.allocateCommandBuffers(allocInfo);
 		}
 
 
@@ -914,8 +768,8 @@ int main() {
 
 			// Create semaphores
 			vk::SemaphoreCreateInfo semaphoreInfo = {};
-			imageAvailableSemaphore = device.createSemaphore(semaphoreInfo);
-			renderFinishedSemaphore = device.createSemaphore(semaphoreInfo);
+			imageAvailableSemaphore = vulkan.device.createSemaphore(semaphoreInfo);
+			renderFinishedSemaphore = vulkan.device.createSemaphore(semaphoreInfo);
 		
 		}
 	}
@@ -949,10 +803,7 @@ int main() {
 			
 			ubo.model = glm::rotate(glm::mat4(), time * glm::radians(90.f), glm::vec3(0.0, 0.0, 1.0));
 
-			void* data;
-			data = device.mapMemory(uniformBufferMemory, 0, sizeof(ubo));
-			memcpy(data, &ubo, sizeof(ubo));
-			device.unmapMemory(uniformBufferMemory);
+			uniformBuffer.fill(&ubo, sizeof(ubo));
 
 			// 10 seconds passed
 			if (time > 10) {
@@ -962,7 +813,7 @@ int main() {
 		}
 
 		// render
-		uint32_t imageIndex = device.acquireNextImageKHR(swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, nullptr).value;
+		uint32_t imageIndex = vulkan.device.acquireNextImageKHR(swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, nullptr).value;
 
 		vk::SubmitInfo submitInfo = {};
 
@@ -992,5 +843,6 @@ int main() {
 		presentQueue.presentKHR(presentInfo);
 	}
 
+	vulkan.device.waitIdle();
 	return 0;
 }
