@@ -10,18 +10,18 @@ layout(location = 1) out vec3 fragNormal;
 layout(location = 2) out vec2 fragTexCoord;
 
 out gl_PerVertex {
-    vec4 gl_Position;
+	vec4 gl_Position;
 };
 
-layout (binding = 0) uniform GeneralRenderUniforms {
+layout(binding = 0) uniform MVPBuffer {
 	mat4 model;
 	mat4 view;
-	mat4 projection; 
-} ubo;
+	mat4 projection;
+} mvp;
 
 void main() {
-    gl_Position = ubo.projection * ubo.view * ubo.model * vec4(inPosition, 1.0);
-	fragPosition = (ubo.model * vec4(inPosition, 1.0)).xyz;
-    fragNormal = inNormal;
+	gl_Position = mvp.projection * mvp.view * mvp.model * vec4(inPosition, 1.0);
+	fragPosition = (mvp.model * vec4(inPosition, 1.0)).xyz;
+	fragNormal = inNormal;
 	fragTexCoord = inTexCoord;
 }

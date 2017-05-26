@@ -93,5 +93,7 @@
     <None Include="shaders\compile.bat">
       <Filter>Quelldateien</Filter>
     </None>
+    <None Include="shaders\geom.vert" />
+    <None Include="shaders\geom.frag" />
   </ItemGroup>
 </Project>

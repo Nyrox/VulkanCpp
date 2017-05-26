@@ -19,7 +19,7 @@ struct VulkanInstance {
 
 
 	vk::CommandPool utilityPool;
-	void createUtilityPool(uint32 queueFamilyIndex);
+	void createUtilityPool();
 
 	vk::CommandBuffer getSingleUseCommandBuffer();
 	void returnSingleUseCommandBuffer(vk::CommandBuffer commandBuffer);
@@ -28,9 +28,26 @@ struct VulkanInstance {
 	void createSurface(GLFWwindow* window);
 	void createPhysicalDevice();
 	void createLogicalDevice();
-private:
 
+	struct QueueFamilyIndices {
+		int graphicsFamily = -1;
+		int presentFamily = -1;
+
+		bool isComplete() { return graphicsFamily >= 0 && presentFamily >= 0; }
+	};
+	QueueFamilyIndices findQueueFamilyIndices(vk::PhysicalDevice device);
+
+	struct SwapChainSupportDetails {
+		vk::SurfaceCapabilitiesKHR capabilities;
+		std::vector<vk::SurfaceFormatKHR> formats;
+		std::vector<vk::PresentModeKHR> presentModes;
+	};
+	SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice device);
+
+private:
+	
 
 	std::vector<const char*> getRequiredExtensions() const;
 	bool checkValidationLayerSupport() const;
+	bool isDeviceSuitable(vk::PhysicalDevice device);
 };

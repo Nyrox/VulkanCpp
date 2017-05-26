@@ -117,6 +117,10 @@ namespace VkUtil {
 			barrier.srcAccessMask = vk::AccessFlagBits(0);
 			barrier.dstAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
 		}
+		else if (oldLayout == vk::ImageLayout::ePreinitialized && newLayout == vk::ImageLayout::eColorAttachmentOptimal) {
+			barrier.srcAccessMask = vk::AccessFlagBits(0);
+			barrier.dstAccessMask = vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite;
+		}
 		else {
 			throw std::invalid_argument("unsupported layout transition!");
 		}

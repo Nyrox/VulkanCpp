@@ -4,3 +4,5 @@ Debug/
 Vulkan Project/Release/Vulkan Project.tlog/CL.command.1.tlog
 Vulkan Project/Release/
 Release/
+*.vcxproj
+*.spv

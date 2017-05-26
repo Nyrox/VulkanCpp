@@ -50,133 +50,21 @@ struct GeneralRenderUniforms {
 	glm::mat4 projection;
 };
 
+struct PointLight {
+	glm::vec3 position;
+	float intensity = 1;
+};
+
+struct Lights {
+	PointLight pointLights[16];
+	uint32 pointLightCount = 0;
+};
+
 struct SwapChainSupportDetails {
 	vk::SurfaceCapabilitiesKHR capabilities;
 	std::vector<vk::SurfaceFormatKHR> formats;
 	std::vector<vk::PresentModeKHR> presentModes;
 };
-
-
-SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice pDevice, vk::SurfaceKHR surface);
-
-struct QueueFamilyIndices {
-	int graphicsFamily = -1;
-	int presentFamily = -1;
-
-	bool isComplete() { return graphicsFamily >= 0 && presentFamily >= 0; }
-};
-
-QueueFamilyIndices findQueueFamilies(vk::PhysicalDevice device, vk::SurfaceKHR surface) {
-	QueueFamilyIndices indices;
-
-	auto queueFamilies = device.getQueueFamilyProperties();
-
-	for (int i = 0; i < queueFamilies.size(); i++) {
-		auto& queueFamily = queueFamilies.at(i);
-
-		if (queueFamily.queueCount <= 0) continue;
-
-		if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
-			indices.graphicsFamily = i;
-		}
-
-		VkBool32 presentSupport = device.getSurfaceSupportKHR(i, surface);
-		if (presentSupport) indices.presentFamily = i;
-
-		if (indices.isComplete()) break;
-	}
-
-	return indices;
-}
-
-bool isDeviceSuitable(vk::PhysicalDevice device, vk::SurfaceKHR surface) {
-	auto indices = findQueueFamilies(device, surface);
-	
-	auto checkDeviceExtensionSupport = [&]() -> bool {
-		auto availableExtensions = device.enumerateDeviceExtensionProperties();
-
-		std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
-
-		for (const auto& extension : availableExtensions) {
-			requiredExtensions.erase(extension.extensionName);
-		}
-
-		return requiredExtensions.empty();
-	};
-
-	auto checkSwapChainSupport = [&]() -> bool {
-		auto swapChainSupport = querySwapChainSupport(device, surface);
-		return !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
-	};
-
-	vk::PhysicalDeviceFeatures supportedFeatures = device.getFeatures();
-
-	return indices.isComplete() && checkDeviceExtensionSupport() && checkSwapChainSupport() 
-		&& (supportedFeatures.samplerAnisotropy);
-}
-
-vk::PhysicalDevice createPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surface) {
-	vk::PhysicalDevice pDevice = VK_NULL_HANDLE;
-
-	auto devices = instance.enumeratePhysicalDevices();
-
-	for (const auto& device : devices) {
-		if (isDeviceSuitable(device, surface)) {
-			pDevice = device;
-			break;
-		}
-	}
-
-	if (pDevice == VK_NULL_HANDLE) {
-		std::runtime_error("Failed to find a suitable GPU!");
-	}
-
-	return pDevice;
-}
-
-void createLogicalDevice(vk::Device& device, vk::PhysicalDevice pDevice, vk::SurfaceKHR surface, vk::Queue& presentQueue, vk::Queue& graphicsQueue) {
-	QueueFamilyIndices indices = findQueueFamilies(pDevice, surface);
-	
-	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-	std::set<int32> uniqueQueueFamilies = { indices.graphicsFamily, indices.presentFamily };
-
-
-	float queuePriority = 1.0f;
-	for (auto queueFamily : uniqueQueueFamilies) {
-		vk::DeviceQueueCreateInfo queueCreateInfo = {};
-		queueCreateInfo.queueFamilyIndex = queueFamily;
-		queueCreateInfo.queueCount = 1;
-		queueCreateInfo.pQueuePriorities = &queuePriority;
-		queueCreateInfos.push_back(queueCreateInfo);
-	}
-
-	// Insert any dank features here
-	vk::PhysicalDeviceFeatures deviceFeatures = {};
-	deviceFeatures.samplerAnisotropy = true;
-
-	vk::DeviceCreateInfo createInfo = {};
-	createInfo.pQueueCreateInfos = queueCreateInfos.data();
-	createInfo.queueCreateInfoCount = (uint32)queueCreateInfos.size();
-
-	createInfo.pEnabledFeatures = &deviceFeatures;
-	
-	createInfo.enabledExtensionCount = deviceExtensions.size();
-	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
-
-	// Enable validation layers
-	if (enableValidationLayers) {
-		createInfo.enabledLayerCount = validationLayers.size();
-		createInfo.ppEnabledLayerNames = validationLayers.data();
-	}
-	else {
-		createInfo.enabledLayerCount = 0;
-	}
-	
-	device = pDevice.createDevice(createInfo);
-	graphicsQueue = device.getQueue(indices.graphicsFamily, 0);
-	presentQueue = device.getQueue(indices.presentFamily, 0);
-}
-
 
 SwapChainSupportDetails querySwapChainSupport(vk::PhysicalDevice pDevice, vk::SurfaceKHR surface) {
 	SwapChainSupportDetails details;
@@ -223,7 +111,7 @@ vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities) {
 	}
 }
 
-std::tuple<vk::Format, vk::Extent2D> createSwapChain(vk::Instance instance, vk::SwapchainKHR& swapChain, vk::PhysicalDevice pDevice, vk::SurfaceKHR surface, vk::Device device, std::vector<vk::Image>& images) {
+std::tuple<vk::Format, vk::Extent2D> createSwapChain(VulkanInstance& vulkan, vk::Instance instance, vk::SwapchainKHR& swapChain, vk::PhysicalDevice pDevice, vk::SurfaceKHR surface, vk::Device device, std::vector<vk::Image>& images) {
 	auto swapChainSupport = querySwapChainSupport(pDevice, surface);
 
 	auto surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
@@ -244,7 +132,7 @@ std::tuple<vk::Format, vk::Extent2D> createSwapChain(vk::Instance instance, vk::
 	createInfo.imageArrayLayers = 1;
 	createInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
 
-	auto indices = findQueueFamilies(pDevice, surface);
+	auto indices = vulkan.findQueueFamilyIndices(vulkan.physicalDevice);
 	uint32 queueFamilyIndices[] = { indices.graphicsFamily, indices.presentFamily };
 
 	if (indices.graphicsFamily != indices.presentFamily) {
@@ -425,6 +313,12 @@ void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::Descriptor
 		uboLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
 		uboLayoutBinding.descriptorCount = 1;
 
+		vk::DescriptorSetLayoutBinding lightLayoutBinding = {};
+		lightLayoutBinding.binding = 10;
+		lightLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+		lightLayoutBinding.descriptorCount = 1;
+		lightLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
 		vk::DescriptorSetLayoutBinding samplerLayoutBinding = {};
 		samplerLayoutBinding.binding = 1;
 		samplerLayoutBinding.descriptorCount = 1;
@@ -435,10 +329,10 @@ void createPipeline(vk::Device device, vk::RenderPass renderPass, vk::Descriptor
 		uboLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
 		uboLayoutBinding.pImmutableSamplers = nullptr;
 
-		std::array<vk::DescriptorSetLayoutBinding, 3> bindings = { uboLayoutBinding, samplerLayoutBinding };
+		std::array<vk::DescriptorSetLayoutBinding, 3> bindings = { uboLayoutBinding, samplerLayoutBinding, lightLayoutBinding };
 
 		vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
-		layoutInfo.bindingCount = 2;
+		layoutInfo.bindingCount = bindings.size();
 		layoutInfo.pBindings = bindings.data();
 
 		descriptorSetLayout = device.createDescriptorSetLayout(layoutInfo);
@@ -492,21 +386,33 @@ int main() {
 	Mesh tableMesh = MeshLoaders::load_ply("meshes/table.ply");
 	Material pbrMaterial;
 
+	Lights lights;
+	lights.pointLights[0].position = glm::vec3(1, 2, 0);
+	lights.pointLights[1].position = glm::vec3(-4, -2, 1);
+
+	lights.pointLightCount = 1;
+
 	VulkanInstance vulkan;
 	vulkan.createVulkanInstance();
 	vulkan.createSurface(window.nativeHandle);
+	vulkan.createPhysicalDevice();
+	vulkan.createLogicalDevice();
+	vulkan.createUtilityPool();
 
 	vk::SwapchainKHR swapChain;
 
-	vk::Queue graphicsQueue, presentQueue;
 	std::vector<vk::Image> swapChainImages;
 	std::vector<vk::ImageView> swapChainImageViews;
 
 	vk::Format format;
 	vk::Extent2D extent;
 
+	
+
+
 	vk::ShaderModule vertexShaderModule;
 	vk::ShaderModule fragmentShaderModule;
+
 
 	vk::RenderPass renderPass;
 	vk::PipelineLayout pipelineLayout;
@@ -534,50 +440,190 @@ int main() {
 	DeviceLocalBuffer vertexBuffer(vulkan, vk::BufferUsageFlagBits::eVertexBuffer);
 	DeviceLocalBuffer indexBuffer(vulkan, vk::BufferUsageFlagBits::eIndexBuffer);
 	HostCoherentBuffer uniformBuffer(vulkan, vk::BufferUsageFlagBits::eUniformBuffer);
+	HostCoherentBuffer lightUniformBuffer(vulkan, vk::BufferUsageFlagBits::eUniformBuffer);
 
+	/* Deferred renderer! */
+	vk::ShaderModule geometryVertexShader;
+	vk::ShaderModule geometryFragmentShader;
+
+	vk::RenderPass geometryPass;
+	vk::PipelineLayout geometryPipelineLayout;
+	vk::Pipeline geometryPipeline;
+	vk::DescriptorSetLayout geometryPassDescriptorSetLayout;
+	vk::Framebuffer geometryFramebuffer;
+
+	vk::Image gPositionBuffer;
+	vk::ImageView gPositionView;
+	vk::DeviceMemory gPositionMemory;
+
+	vk::Image gNormalBuffer;
+	vk::ImageView gNormalView;
+	vk::DeviceMemory gNormalMemory;
+
+	vk::CommandBuffer geometryPassCommandBuffer;
 
 	try {
-		
-		vulkan.physicalDevice = createPhysicalDevice(vulkan.instance, vulkan.surface);
-		createLogicalDevice(vulkan.device, vulkan.physicalDevice, vulkan.surface, presentQueue, graphicsQueue);
-
-		auto si = createSwapChain(vulkan.instance, swapChain, vulkan.physicalDevice, vulkan.surface, vulkan.device, swapChainImages);
+		auto si = createSwapChain(vulkan, vulkan.instance, swapChain, vulkan.physicalDevice, vulkan.surface, vulkan.device, swapChainImages);
 		format = std::get<vk::Format>(si);
 		extent = std::get<vk::Extent2D>(si);
 
-		vulkan.graphicsQueue = graphicsQueue;
-		vulkan.presentQueue = presentQueue;
-		vulkan.utilityPool = commandPool;
-		
-
 		createImageViews(vulkan, swapChainImageViews, swapChainImages, format);
 	
-		auto vertShaderCode = FUtil::file_read_binary("shaders/vert.spv");
-		auto fragShaderCode = FUtil::file_read_binary("shaders/frag.spv");
+		auto vertShaderCode = FUtil::file_read_binary("shaders/tri.vert.spv");
+		auto fragShaderCode = FUtil::file_read_binary("shaders/tri.frag.spv");
 
 		createShaderModule(vertShaderCode, vulkan.device, vertexShaderModule);
 		createShaderModule(fragShaderCode, vulkan.device, fragmentShaderModule);
 
-		createRenderPass(vulkan.device, renderPass, format);
-		createPipeline(vulkan.device, renderPass, descriptorSetLayout, pipelineLayout, graphicsPipeline, vertexShaderModule, fragmentShaderModule, extent, pbrMaterial);
-		
+		/* Create deferred render pipeline */
+		createShaderModule(FUtil::file_read_binary("shaders/geom.vert.spv"), vulkan.device, geometryVertexShader);
+		createShaderModule(FUtil::file_read_binary("shaders/geom.frag.spv"), vulkan.device, geometryFragmentShader);
 
-		uniformBuffer.resize(sizeof(GeneralRenderUniforms));
-
-		// Create command pool
+		/* Create render pass */
 		{
-			auto indices = findQueueFamilies(vulkan.physicalDevice, vulkan.surface);
+			vk::AttachmentDescription attachmentBlueprint = { };
+			attachmentBlueprint.samples = vk::SampleCountFlagBits::e1;
+			attachmentBlueprint.loadOp = vk::AttachmentLoadOp::eClear;
+			attachmentBlueprint.storeOp = vk::AttachmentStoreOp::eStore;
+			attachmentBlueprint.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+			attachmentBlueprint.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+			attachmentBlueprint.initialLayout = vk::ImageLayout::eUndefined;
+			attachmentBlueprint.finalLayout = vk::ImageLayout::eColorAttachmentOptimal;
 
-			vk::CommandPoolCreateInfo poolInfo = {};
-			poolInfo.queueFamilyIndex = indices.graphicsFamily;
+			vk::AttachmentDescription positionAttachment = attachmentBlueprint;
+			positionAttachment.format = vk::Format::eR16G16B16A16Sfloat;
 
-			commandPool = vulkan.device.createCommandPool(poolInfo);
+			vk::AttachmentDescription normalAttachment = attachmentBlueprint;
+			normalAttachment.format = vk::Format::eR16G16B16A16Sfloat;
 
-			// Use the graphics family as our utility pool since it supports what we need
-			vulkan.createUtilityPool(indices.graphicsFamily);
+			vk::AttachmentReference positionAttachmentRef = { };
+			positionAttachmentRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+			positionAttachmentRef.attachment = 0;
+
+			vk::AttachmentReference normalAttachmentRef = {};
+			normalAttachmentRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+			normalAttachmentRef.attachment = 1;
+
+
+			vk::AttachmentDescription depthAttachment = attachmentBlueprint;
+			depthAttachment.format = vk::Format::eD32Sfloat;
+			depthAttachment.storeOp = vk::AttachmentStoreOp::eDontCare;			
+			vk::AttachmentReference depthAttachmentRef(2, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+			auto colorAttachments = { positionAttachmentRef, normalAttachmentRef };
+
+			vk::SubpassDescription subpass = {};
+			subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+			subpass.colorAttachmentCount = 2;
+			subpass.pColorAttachments = colorAttachments.begin();
+			subpass.pDepthStencilAttachment = &depthAttachmentRef;
+
+			auto attachments = { positionAttachment, normalAttachment, depthAttachment };
+
+			vk::RenderPassCreateInfo renderPassInfo = {};
+			renderPassInfo.attachmentCount = attachments.size();
+			renderPassInfo.pAttachments = attachments.begin();
+			renderPassInfo.subpassCount = 1;
+			renderPassInfo.pSubpasses = &subpass;
+
+			vk::SubpassDependency dependency = {};
+			dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+			dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+			dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+
+			renderPassInfo.dependencyCount = 1;
+			renderPassInfo.pDependencies = &dependency;
+
+			geometryPass = vulkan.device.createRenderPass(renderPassInfo);
 		}
+
+		{
+			vk::PipelineShaderStageCreateInfo vertexShaderStageInfo({}, vk::ShaderStageFlagBits::eVertex, geometryVertexShader, "main");
+			vk::PipelineShaderStageCreateInfo fragmentShaderStageInfo({}, vk::ShaderStageFlagBits::eFragment, geometryFragmentShader, "main");
+
+			auto shaderStages = { vertexShaderStageInfo, fragmentShaderStageInfo };
+
+			vk::PipelineVertexInputStateCreateInfo vertexInputInfo = {};			
+			auto bindingDescription = Vertex::getBindingDescription();
+			auto attributeDescriptions = Vertex::getAttributeDescriptions();
+			vertexInputInfo.vertexBindingDescriptionCount = 1;
+			vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+			vertexInputInfo.vertexAttributeDescriptionCount = attributeDescriptions.size();
+			vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+			vk::PipelineInputAssemblyStateCreateInfo inputAssembly({}, vk::PrimitiveTopology::eTriangleList, false);
+			vk::Viewport viewport = {};
+			viewport.width = (float)extent.width;
+			viewport.height = (float)extent.height;
+			viewport.maxDepth = 1.0f;
+
+			vk::Rect2D scissor = {};
+			scissor.extent = extent;
+
+			vk::PipelineViewportStateCreateInfo viewportState({}, 1, &viewport, 1, &scissor);
+			vk::PipelineRasterizationStateCreateInfo rasterizer = { };
+			rasterizer.polygonMode = vk::PolygonMode::eFill;
+			rasterizer.lineWidth = 1.0f;
+			rasterizer.cullMode = vk::CullModeFlagBits::eNone;
+			rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
+			
+			vk::PipelineColorBlendAttachmentState colorBlendAttachment = {};
+			colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB;
+			colorBlendAttachment.blendEnable = false;
+
+			auto colorBlendAttachments = { colorBlendAttachment, colorBlendAttachment };
+
+			vk::PipelineMultisampleStateCreateInfo multisampling({}, vk::SampleCountFlagBits::e1, false);
+			vk::PipelineColorBlendStateCreateInfo colorBlending({}, false, {}, 2, colorBlendAttachments.begin());
 		
-		
+			// Create descriptor set layout
+			{
+				vk::DescriptorSetLayoutBinding mvpLayoutBinding = {};
+				mvpLayoutBinding.binding = 0;
+				mvpLayoutBinding.descriptorCount = 1;
+				mvpLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+				mvpLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
+
+				auto bindings = { mvpLayoutBinding };
+
+				vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
+				layoutInfo.bindingCount = bindings.size();
+				layoutInfo.pBindings = bindings.begin();
+
+				geometryPassDescriptorSetLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+			}
+			
+			vk::PipelineDepthStencilStateCreateInfo depthStencil = {};
+			depthStencil.depthTestEnable = true;
+			depthStencil.depthWriteEnable = true;
+			depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
+
+			
+			auto setLayouts = { geometryPassDescriptorSetLayout };
+
+			vk::PipelineLayoutCreateInfo pipelineLayoutInfo = {};
+			pipelineLayoutInfo.setLayoutCount = setLayouts.size();
+			pipelineLayoutInfo.pSetLayouts = setLayouts.begin();
+			
+			geometryPipelineLayout = vulkan.device.createPipelineLayout(pipelineLayoutInfo);
+
+
+			vk::GraphicsPipelineCreateInfo pipelineInfo = {};
+			pipelineInfo.stageCount = shaderStages.size();
+			pipelineInfo.pStages = shaderStages.begin();
+			pipelineInfo.pVertexInputState = &vertexInputInfo;
+			pipelineInfo.pInputAssemblyState = &inputAssembly;
+			pipelineInfo.pViewportState = &viewportState;
+			pipelineInfo.pRasterizationState = &rasterizer;
+			pipelineInfo.pMultisampleState = &multisampling;
+			pipelineInfo.pDepthStencilState = &depthStencil;
+			pipelineInfo.pColorBlendState = &colorBlending;
+			pipelineInfo.layout = geometryPipelineLayout;
+			pipelineInfo.renderPass = geometryPass;
+
+			geometryPipeline = vulkan.device.createGraphicsPipeline(nullptr, pipelineInfo);
+		}
+
 
 		// Create depth buffer
 		{
@@ -586,6 +632,55 @@ int main() {
 			depthImageView = VkUtil::createImageView(vulkan, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
 			VkUtil::transitionImageLayout(vulkan, depthImage, depthFormat, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 		}
+
+		// Create g buffer
+		{
+			vk::Format gFormat = vk::Format::eR16G16B16A16Sfloat;
+			VkUtil::createImage(vulkan, gPositionBuffer, gPositionMemory, extent, gFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eColorAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
+			gPositionView = VkUtil::createImageView(vulkan, gPositionBuffer, gFormat, vk::ImageAspectFlagBits::eColor);
+			VkUtil::transitionImageLayout(vulkan, gPositionBuffer, gFormat, vk::ImageLayout::ePreinitialized, vk::ImageLayout::eColorAttachmentOptimal);
+	
+
+			VkUtil::createImage(vulkan, gNormalBuffer, gPositionMemory, extent, gFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eColorAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
+			gNormalView = VkUtil::createImageView(vulkan, gNormalBuffer, gFormat, vk::ImageAspectFlagBits::eColor);
+			VkUtil::transitionImageLayout(vulkan, gNormalBuffer, gFormat, vk::ImageLayout::ePreinitialized, vk::ImageLayout::eColorAttachmentOptimal);
+
+		}
+		
+		auto attachments = {
+			gPositionView,
+			gNormalView,
+			depthImageView
+		};
+
+		vk::FramebufferCreateInfo framebufferInfo = {};
+		framebufferInfo.renderPass = geometryPass;
+		framebufferInfo.attachmentCount = attachments.size();
+		framebufferInfo.pAttachments = attachments.begin();
+		framebufferInfo.width = extent.width;
+		framebufferInfo.height = extent.height;
+		framebufferInfo.layers = 1;
+		geometryFramebuffer = vulkan.device.createFramebuffer(framebufferInfo);
+
+		createRenderPass(vulkan.device, renderPass, format);
+		createPipeline(vulkan.device, renderPass, descriptorSetLayout, pipelineLayout, graphicsPipeline, vertexShaderModule, fragmentShaderModule, extent, pbrMaterial);
+		
+
+		uniformBuffer.resize(sizeof(GeneralRenderUniforms));
+		lightUniformBuffer.resize(sizeof(Lights));
+
+		// Create command pool
+		{
+			auto indices = vulkan.findQueueFamilyIndices(vulkan.physicalDevice);
+
+			vk::CommandPoolCreateInfo poolInfo = {};
+			poolInfo.queueFamilyIndex = indices.graphicsFamily;
+
+			commandPool = vulkan.device.createCommandPool(poolInfo);
+		}
+		
+		
+
 
 		// Create framebuffers
 		swapChainFramebuffers.resize(swapChainImageViews.size());
@@ -665,7 +760,7 @@ int main() {
 		{
 			std::array<vk::DescriptorPoolSize, 2> poolSizes = {};
 			poolSizes[0].type = vk::DescriptorType::eUniformBuffer;
-			poolSizes[0].descriptorCount = 1;
+			poolSizes[0].descriptorCount = 2;
 			poolSizes[1].type = vk::DescriptorType::eCombinedImageSampler;
 			poolSizes[1].descriptorCount = 1;
 
@@ -679,7 +774,7 @@ int main() {
 
 		// Create descriptor set
 		{
-			vk::DescriptorSetLayout layouts[] = { descriptorSetLayout };
+			vk::DescriptorSetLayout layouts[] = { geometryPassDescriptorSetLayout };
 			vk::DescriptorSetAllocateInfo allocInfo = {};
 			allocInfo.descriptorPool = descriptorPool;
 			allocInfo.descriptorSetCount = 1;
@@ -692,12 +787,17 @@ int main() {
 			bufferInfo.offset = 0;
 			bufferInfo.range = sizeof(GeneralRenderUniforms);
 
+			vk::DescriptorBufferInfo lBufferInfo = {};
+			lBufferInfo.buffer = lightUniformBuffer.buffer;
+			lBufferInfo.offset = 0;
+			lBufferInfo.range = sizeof(Lights);
+
 			vk::DescriptorImageInfo imageInfo = {};
 			imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 			imageInfo.imageView = textureImageView;
 			imageInfo.sampler = textureImageSampler;
 			
-			std::array<vk::WriteDescriptorSet, 2> descriptorWrites = {};
+			std::array<vk::WriteDescriptorSet, 1> descriptorWrites = {};
 
 			descriptorWrites[0].dstSet = descriptorSet;
 			descriptorWrites[0].dstBinding = 0;
@@ -706,12 +806,19 @@ int main() {
 			descriptorWrites[0].descriptorCount = 1;
 			descriptorWrites[0].pBufferInfo = &bufferInfo;
 
-			descriptorWrites[1].dstSet = descriptorSet;
-			descriptorWrites[1].dstBinding = 1;
-			descriptorWrites[1].dstArrayElement = 0;
-			descriptorWrites[1].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			descriptorWrites[1].descriptorCount = 1;
-			descriptorWrites[1].pImageInfo = &imageInfo;
+			//descriptorWrites[1].dstSet = descriptorSet;
+			//descriptorWrites[1].dstBinding = 1;
+			//descriptorWrites[1].dstArrayElement = 0;
+			//descriptorWrites[1].descriptorType = vk::DescriptorType::eCombinedImageSampler;
+			//descriptorWrites[1].descriptorCount = 1;
+			//descriptorWrites[1].pImageInfo = &imageInfo;
+
+			//descriptorWrites[2].dstSet = descriptorSet;
+			//descriptorWrites[2].dstBinding = 10;
+			//descriptorWrites[2].dstArrayElement = 0;
+			//descriptorWrites[2].descriptorType = vk::DescriptorType::eUniformBuffer;
+			//descriptorWrites[2].descriptorCount = 1;
+			//descriptorWrites[2].pBufferInfo = &lBufferInfo;
 
 			vulkan.device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
@@ -728,9 +835,42 @@ int main() {
 			commandBuffers = vulkan.device.allocateCommandBuffers(allocInfo);
 		}
 
+		{
+			vk::CommandBufferAllocateInfo allocInfo = {};
+			allocInfo.commandPool = commandPool;
+			allocInfo.level = vk::CommandBufferLevel::ePrimary;
+			allocInfo.commandBufferCount = 1;
+
+			geometryPassCommandBuffer = vulkan.device.allocateCommandBuffers(allocInfo)[0];
+
+		}
 
 		// record commands
 		{
+			// Geometry pass
+			auto& commandBuffer = geometryPassCommandBuffer;
+
+			vk::CommandBufferBeginInfo beginInfo(vk::CommandBufferUsageFlagBits::eSimultaneousUse);
+			commandBuffer.begin(beginInfo);
+
+			std::array<vk::ClearValue, 3> clearColors = {};
+			clearColors[0].color = vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f });
+			clearColors[1].color = vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f });
+			clearColors[2].depthStencil = { 1.0, 0 };
+
+			vk::RenderPassBeginInfo renderPassInfo(geometryPass, geometryFramebuffer, vk::Rect2D({ 0, 0, }, extent), 3, clearColors.data());
+			commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
+			commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, geometryPipeline);
+			commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, geometryPipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+			
+			vk::DeviceSize offsets[] = { 0 };
+
+			commandBuffer.bindVertexBuffers(0, 1, &vertexBuffer.buffer, offsets);
+			commandBuffer.bindIndexBuffer(indexBuffer.buffer, 0, vk::IndexType::eUint32);
+			commandBuffer.drawIndexed(tableMesh.indices.size(), 1, 0, 0, 0);
+			commandBuffer.endRenderPass();
+			commandBuffer.end();
+
 			for (size_t i = 0; i < commandBuffers.size(); i++) {
 				auto& commandBuffer = commandBuffers[i];
 
@@ -741,21 +881,22 @@ int main() {
 				commandBuffer.begin(beginInfo);
 
 				vk::RenderPassBeginInfo renderPassInfo = {};
-				renderPassInfo.renderPass = renderPass;
-				renderPassInfo.framebuffer = swapChainFramebuffers[i];
+				renderPassInfo.renderPass = geometryPass;
+				renderPassInfo.framebuffer = geometryFramebuffer;
 				renderPassInfo.renderArea.offset = { 0, 0 };
 				renderPassInfo.renderArea.extent = extent;
 
-				std::array<vk::ClearValue, 2> clearColors = {};
-				clearColors[0].color = vk::ClearColorValue(std::array<float, 4>{ 0.05f, 0.05f, 0.05f, 1.0f });
+				std::array<vk::ClearValue, 3> clearColors = {};
+				clearColors[0].color = vk::ClearColorValue(std::array<float, 4>{ 0.f, 0.f, 0.f, 0.f });
+				clearColors[0].color = vk::ClearColorValue(std::array<float, 4>{ 0.f, 0.f, 0.f, 0.f });
 				clearColors[1].depthStencil = { 1.0, 0 };
 
-				renderPassInfo.clearValueCount = 2;
+				renderPassInfo.clearValueCount = 3;
 				renderPassInfo.pClearValues = clearColors.data();
 
 				commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
-				commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
-				commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+				commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, geometryPipeline);
+				commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, geometryPipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
 				vk::DeviceSize offsets[] = { 0 };
 				
@@ -805,6 +946,8 @@ int main() {
 
 			uniformBuffer.fill(&ubo, sizeof(ubo));
 
+			lightUniformBuffer.fill(&lights, sizeof(Lights));
+
 			// 10 seconds passed
 			if (time > 10) {
 				std::cout << "Rendered " << i << " frames in 10 seconds.\nFPS: " << i / 10 << "\n";
@@ -823,13 +966,13 @@ int main() {
 		submitInfo.pWaitSemaphores = waitSemaphores;
 		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+		submitInfo.pCommandBuffers = &geometryPassCommandBuffer;
 
 		vk::Semaphore signalSemaphores[] = { renderFinishedSemaphore };
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
-		graphicsQueue.submit(1, &submitInfo, nullptr);
+		vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);
 
 		vk::PresentInfoKHR presentInfo = {};
 		presentInfo.waitSemaphoreCount = 1;
@@ -840,7 +983,7 @@ int main() {
 		presentInfo.pSwapchains = swapChains;
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr; // Optional
-		presentQueue.presentKHR(presentInfo);
+		vulkan.presentQueue.presentKHR(presentInfo);
 	}
 
 	vulkan.device.waitIdle();

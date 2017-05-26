@@ -1,5 +1,6 @@
 #include "VulkanInstance.h"
 #include <GLFW/glfw3.h>
+#include <set>
 
 /* Application metadata */
 constexpr auto APPLICATION_NAME = "Praise kek";
@@ -108,11 +109,113 @@ void VulkanInstance::createSurface(GLFWwindow* window) {
 	}
 }
 
+VulkanInstance::QueueFamilyIndices VulkanInstance::findQueueFamilyIndices(vk::PhysicalDevice device) {
+	QueueFamilyIndices indices;
+	auto queueFamilies = device.getQueueFamilyProperties();
 
+	for (int i = 0; i < queueFamilies.size(); i++) {
+		auto& queueFamily = queueFamilies.at(i);
 
-void VulkanInstance::createUtilityPool(uint32 queueFamily) {
+		if (queueFamily.queueCount <= 0) continue;
+
+		if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) indices.graphicsFamily = i;
+		if (device.getSurfaceSupportKHR(i, surface)) indices.presentFamily = i;
+
+		if (indices.isComplete()) break;
+	}
+
+	return indices;
+}
+
+VulkanInstance::SwapChainSupportDetails VulkanInstance::querySwapChainSupport(vk::PhysicalDevice device) {
+	SwapChainSupportDetails details;
+	details.capabilities = device.getSurfaceCapabilitiesKHR(surface);
+	details.formats = device.getSurfaceFormatsKHR(surface);
+	details.presentModes = device.getSurfacePresentModesKHR(surface);
+
+	return details;
+}
+
+bool VulkanInstance::isDeviceSuitable(vk::PhysicalDevice device) {
+	auto indices = findQueueFamilyIndices(device);
+
+	auto checkDeviceExtensionSupport = [&]() -> bool {
+		auto availableExtensions = device.enumerateDeviceExtensionProperties();
+
+		std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+		for (const auto& extension : availableExtensions) {
+			requiredExtensions.erase(extension.extensionName);
+		}
+
+		return requiredExtensions.empty();
+	};
+
+	auto checkSwapChainSupport = [&]() -> bool {
+		auto swapChainSupport = querySwapChainSupport(device);
+		return !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+	};
+
+	vk::PhysicalDeviceFeatures supportedFeatures = device.getFeatures();
+
+	return indices.isComplete() && checkDeviceExtensionSupport() && checkSwapChainSupport()
+		&& (supportedFeatures.samplerAnisotropy);
+}
+
+void VulkanInstance::createPhysicalDevice() {
+	auto devices = instance.enumeratePhysicalDevices();
+
+	for (const auto& device : devices) {
+		if (isDeviceSuitable(device)) {
+			physicalDevice = device;
+			break;
+		}
+	}
+
+	if (physicalDevice == VK_NULL_HANDLE) {
+		throw std::runtime_error("Failed to find a suitable physical device.");
+	}
+}
+
+void VulkanInstance::createLogicalDevice() {
+	auto indices = findQueueFamilyIndices(physicalDevice);
+
+	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+	std::set<int32> uniqueQueueFamilies = { indices.graphicsFamily, indices.presentFamily };
+
+	float queuePriority = 1.0f;
+	for (auto queueFamily : uniqueQueueFamilies) {
+		vk::DeviceQueueCreateInfo queueCreateInfo = {};
+		queueCreateInfo.queueFamilyIndex = queueFamily;
+		queueCreateInfo.queueCount = 1;
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+		queueCreateInfos.push_back(queueCreateInfo);
+	}
+
+	// Insert any dank features here
+	vk::PhysicalDeviceFeatures deviceFeatures = {};
+	deviceFeatures.samplerAnisotropy = true;
+
+	vk::DeviceCreateInfo createInfo = {};
+	createInfo.pQueueCreateInfos = queueCreateInfos.data();
+	createInfo.queueCreateInfoCount = queueCreateInfos.size();
+	createInfo.pEnabledFeatures = &deviceFeatures;
+	createInfo.enabledExtensionCount = deviceExtensions.size();
+	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
+	// Enable validation layers
+	if (enableValidationLayers) {
+		createInfo.enabledLayerCount = validationLayers.size();
+		createInfo.ppEnabledLayerNames = validationLayers.data();
+	}
+
+	device = physicalDevice.createDevice(createInfo);
+	graphicsQueue = device.getQueue(indices.graphicsFamily, 0);
+	presentQueue = device.getQueue(indices.presentFamily, 0);
+}
+
+void VulkanInstance::createUtilityPool() {
 	vk::CommandPoolCreateInfo poolInfo = {};
-	poolInfo.queueFamilyIndex = queueFamily;
+	poolInfo.queueFamilyIndex = findQueueFamilyIndices(physicalDevice).graphicsFamily;
 
 	utilityPool = device.createCommandPool(poolInfo);
 }
