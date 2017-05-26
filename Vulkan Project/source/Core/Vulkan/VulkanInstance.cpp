@@ -99,7 +99,7 @@ void VulkanInstance::createVulkanInstance() {
 
 	instance = vk::createInstance(createInfo);
 
-	vk::DebugReportCallbackCreateInfoEXT callbackInfo(vk::DebugReportFlagsEXT(), vulkanDebugCallback);
+	vk::DebugReportCallbackCreateInfoEXT callbackInfo(vk::DebugReportFlagBitsEXT::eError | vk::DebugReportFlagBitsEXT::eWarning, vulkanDebugCallback);
 	debugCallback = instance.createDebugReportCallbackEXT(callbackInfo);
 }
 

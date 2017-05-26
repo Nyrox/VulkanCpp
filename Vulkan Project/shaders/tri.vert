@@ -13,15 +13,7 @@ out gl_PerVertex {
     vec4 gl_Position;
 };
 
-layout (binding = 0) uniform GeneralRenderUniforms {
-	mat4 model;
-	mat4 view;
-	mat4 projection; 
-} ubo;
-
 void main() {
-    gl_Position = ubo.projection * ubo.view * ubo.model * vec4(inPosition, 1.0);
-	fragPosition = (ubo.model * vec4(inPosition, 1.0)).xyz;
-    fragNormal = inNormal;
-	fragTexCoord = inTexCoord;
+    gl_Position = vec4(inPosition, 1.0);
+
 }
