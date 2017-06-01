@@ -8,6 +8,7 @@
 
 #include <vulkan/vulkan.hpp>
 #include <Window/Window.h>
+#include <Core/Render/Camera.h>
 #include <Core/Render/Vertex.h>
 #include <Core/Render/Material.h>
 
@@ -178,12 +179,13 @@ void createShaderModule(const std::vector<int8>& code, vk::Device device, vk::Sh
 
 int main() {
 	Window window(1280, 720, "Praise kek");
+	Camera camera(Transform(glm::vec3(0, 5, 3)), glm::perspective(glm::radians(75.0f), 1280.f / 720.f, 0.1f, 100.0f));
 
 	Mesh tableMesh = MeshLoaders::load_ply("meshes/table.ply");
 	Material pbrMaterial;
 
 	Lights lights;
-	lights.pointLights[0].position = glm::vec3(1, 2, 0);
+	lights.pointLights[0].position = glm::vec3(-2, 5, 0);
 	lights.pointLights[1].position = glm::vec3(-4, -2, 1);
 
 	lights.pointLightCount = 1;
@@ -207,9 +209,7 @@ int main() {
 	vk::CommandPool commandPool;
 	std::vector<vk::CommandBuffer> commandBuffers;
 
-	vk::DescriptorSetLayout descriptorSetLayout;
 	vk::DescriptorPool descriptorPool;
-	vk::DescriptorSet descriptorSet;
 
 	vk::Semaphore imageAvailableSemaphore, renderFinishedSemaphore;
 
@@ -228,6 +228,7 @@ int main() {
 	HostCoherentBuffer uniformBuffer(vulkan, vk::BufferUsageFlagBits::eUniformBuffer);
 	HostCoherentBuffer lightUniformBuffer(vulkan, vk::BufferUsageFlagBits::eUniformBuffer);
 
+
 	/* Deferred renderer! */
 	vk::ShaderModule geometryVertexShader;
 	vk::ShaderModule geometryFragmentShader;
@@ -235,7 +236,6 @@ int main() {
 	vk::RenderPass geometryPass;
 	vk::PipelineLayout geometryPipelineLayout;
 	vk::Pipeline geometryPipeline;
-	vk::DescriptorSetLayout geometryPassDescriptorSetLayout;
 	vk::Framebuffer geometryFramebuffer;
 
 	vk::Image gPositionBuffer;
@@ -248,9 +248,6 @@ int main() {
 
 	vk::CommandBuffer geometryPassCommandBuffer;
 
-	vk::DescriptorSetLayout gBufferDescriptorLayout;
-	vk::DescriptorSet gBufferDescriptorSet;
-
 	/* Normal renderer */
 	vk::ShaderModule lightingVertexShader;
 	vk::ShaderModule lightingFragmentShader;
@@ -258,6 +255,71 @@ int main() {
 	vk::RenderPass lightingPass;
 	vk::Pipeline lightingPipeline;
 	vk::PipelineLayout lightingPipelineLayout;
+
+	DeviceLocalBuffer screenQuadBuffer(vulkan, vk::BufferUsageFlagBits::eVertexBuffer);
+	Vertex screenQuad[] = {
+		{ glm::vec3(-1, -1, 0) }, { glm::vec3(1, -1, 0) },
+		{ glm::vec3(-1, 1, 0) }, { glm::vec3(1, 1, 0) }
+	};
+	screenQuadBuffer.fill(screenQuad, sizeof(Vertex) * 4);
+
+	/*
+		Refactor
+	*/
+	vk::DescriptorSetLayout gBufferLayout;
+	vk::DescriptorSetLayout mvpBufferLayout;
+	vk::DescriptorSetLayout lightBufferLayout;
+
+	vk::DescriptorSet gBufferSet, mvpBufferSet, lightBufferSet;
+	vk::Sampler gBufferSampler;
+
+	// Create descriptor set layouts 
+	{
+		{
+			vk::DescriptorSetLayoutBinding mvpLayoutBinding = {};
+			mvpLayoutBinding.binding = 0;
+			mvpLayoutBinding.descriptorCount = 1;
+			mvpLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+			mvpLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
+
+			vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
+			layoutInfo.bindingCount = 1;
+			layoutInfo.pBindings = &mvpLayoutBinding;
+
+			mvpBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+		}
+
+		{
+			vk::DescriptorSetLayoutBinding positionBuffer = {};
+			positionBuffer.binding = 0;
+			positionBuffer.descriptorCount = 1;
+			positionBuffer.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+			positionBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+			vk::DescriptorSetLayoutBinding normalBuffer = {};
+			normalBuffer.binding = 1;
+			normalBuffer.descriptorCount = 1;
+			normalBuffer.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+			normalBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+			auto gBufferBindings = { positionBuffer, normalBuffer };
+			vk::DescriptorSetLayoutCreateInfo layoutInfo({}, gBufferBindings.size(), gBufferBindings.begin());
+			gBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+		}
+
+		{
+			vk::DescriptorSetLayoutBinding lightBuffer = {};
+			lightBuffer.binding = 0;
+			lightBuffer.descriptorCount = 1;
+			lightBuffer.descriptorType = vk::DescriptorType::eUniformBuffer;
+			lightBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+			vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &lightBuffer);
+			lightBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+		}
+	}
+
+
 
 	try {
 		auto si = createSwapChain(vulkan, vulkan.instance, swapChain, vulkan.physicalDevice, vulkan.surface, vulkan.device, swapChainImages);
@@ -369,31 +431,13 @@ int main() {
 
 			vk::PipelineMultisampleStateCreateInfo multisampling({}, vk::SampleCountFlagBits::e1, false);
 			vk::PipelineColorBlendStateCreateInfo colorBlending({}, false, {}, 2, colorBlendAttachments.begin());
-		
-			// Create descriptor set layout
-			{
-				vk::DescriptorSetLayoutBinding mvpLayoutBinding = {};
-				mvpLayoutBinding.binding = 0;
-				mvpLayoutBinding.descriptorCount = 1;
-				mvpLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
-				mvpLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
-
-				auto bindings = { mvpLayoutBinding };
-
-				vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
-				layoutInfo.bindingCount = bindings.size();
-				layoutInfo.pBindings = bindings.begin();
-
-				geometryPassDescriptorSetLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
-			}
 			
 			vk::PipelineDepthStencilStateCreateInfo depthStencil = {};
 			depthStencil.depthTestEnable = true;
 			depthStencil.depthWriteEnable = true;
 			depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
-
 			
-			auto setLayouts = { geometryPassDescriptorSetLayout };
+			auto setLayouts = { mvpBufferLayout };
 
 			vk::PipelineLayoutCreateInfo pipelineLayoutInfo = {};
 			pipelineLayoutInfo.setLayoutCount = setLayouts.size();
@@ -477,7 +521,7 @@ int main() {
 		
 
 			vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
-			inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+			inputAssembly.topology = vk::PrimitiveTopology::eTriangleStrip;
 			inputAssembly.primitiveRestartEnable = false;
 			
 			vk::Viewport viewport;
@@ -517,8 +561,11 @@ int main() {
 
 			vk::PipelineColorBlendStateCreateInfo colorBlending({}, false, {}, 1, colorBlendAttachments.begin());
 
+			auto layouts = { gBufferLayout, lightBufferLayout };
+
 			vk::PipelineLayoutCreateInfo layoutInfo;
-			layoutInfo.setLayoutCount = 0;
+			layoutInfo.setLayoutCount = layouts.size();
+			layoutInfo.pSetLayouts = layouts.begin();
 			layoutInfo.pushConstantRangeCount = 0;
 
 			lightingPipelineLayout = vulkan.device.createPipelineLayout(layoutInfo);
@@ -584,29 +631,6 @@ int main() {
 
 		}
 
-
-
-		// Create lighting pass
-		// Create gBuffer descriptor set layouts
-		{
-			vk::DescriptorSetLayoutBinding blueprint = {};
-			blueprint.descriptorCount = 1;
-			blueprint.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			blueprint.stageFlags = vk::ShaderStageFlagBits::eFragment;
-
-			vk::DescriptorSetLayoutBinding position = blueprint;
-			position.binding = 0;
-
-			vk::DescriptorSetLayoutBinding normal = blueprint;
-			normal.binding = 1;
-
-			auto bindings = { position, normal };
-			vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
-			layoutInfo.bindingCount = bindings.size();
-			layoutInfo.pBindings = bindings.begin();
-
-			gBufferDescriptorLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
-		}
 
 		uniformBuffer.resize(sizeof(GeneralRenderUniforms));
 		lightUniformBuffer.resize(sizeof(Lights));
@@ -695,6 +719,8 @@ int main() {
 			samplerInfo.maxLod = 0.0f;
 			
 			textureImageSampler = vulkan.device.createSampler(samplerInfo);
+
+			gBufferSampler = vulkan.device.createSampler({});
 		}
 
 		// Create descriptor pool
@@ -715,78 +741,55 @@ int main() {
 
 		// Create descriptor set
 		{
-			//vk::DescriptorSetLayout layouts[] = { geometryPassDescriptorSetLayout };
-			//vk::DescriptorSetAllocateInfo allocInfo = {};
-			//allocInfo.descriptorPool = descriptorPool;
-			//allocInfo.descriptorSetCount = 1;
-			//allocInfo.pSetLayouts = layouts;
+			auto layouts = { mvpBufferLayout, lightBufferLayout, gBufferLayout };
+			vk::DescriptorSetAllocateInfo allocInfo = {};
+			allocInfo.descriptorPool = descriptorPool;
+			allocInfo.descriptorSetCount = layouts.size();
+			allocInfo.pSetLayouts = layouts.begin();
 
-			//descriptorSet = vulkan.device.allocateDescriptorSets(allocInfo)[0];
+			auto sets = vulkan.device.allocateDescriptorSets(allocInfo);
+			mvpBufferSet = sets[0];
+			lightBufferSet = sets[1];
+			gBufferSet = sets[2];
 
-			//vk::DescriptorBufferInfo bufferInfo = {};
-			//bufferInfo.buffer = uniformBuffer.buffer;
-			//bufferInfo.offset = 0;
-			//bufferInfo.range = sizeof(GeneralRenderUniforms);
+			std::vector<vk::WriteDescriptorSet> descriptorWrites;
 
-			//vk::DescriptorBufferInfo lBufferInfo = {};
-			//lBufferInfo.buffer = lightUniformBuffer.buffer;
-			//lBufferInfo.offset = 0;
-			//lBufferInfo.range = sizeof(Lights);
+			{
+				// MVP Buffer
+				vk::DescriptorBufferInfo bufferInfo = {};
+				bufferInfo.buffer = uniformBuffer.buffer;
+				bufferInfo.offset = 0;
+				bufferInfo.range = sizeof(GeneralRenderUniforms);
 
-			//vk::DescriptorImageInfo imageInfo = {};
-			//imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-			//imageInfo.imageView = textureImageView;
-			//imageInfo.sampler = textureImageSampler;
-			//
-			//std::array<vk::WriteDescriptorSet, 1> descriptorWrites = {};
+				descriptorWrites.push_back(vk::WriteDescriptorSet(mvpBufferSet, 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo));
+			}
+			{
+				// Light buffer
+				vk::DescriptorBufferInfo bufferInfo = { };
+				bufferInfo.buffer = lightUniformBuffer.buffer;
+				bufferInfo.offset = 0;
+				bufferInfo.range = sizeof(Lights);
+				
+				descriptorWrites.push_back(vk::WriteDescriptorSet(lightBufferSet, 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo));
+			}
+			{
+				// GBuffer
+				vk::DescriptorImageInfo posInfo = {};
+				posInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+				posInfo.imageView = gPositionView;
+				posInfo.sampler = gBufferSampler;
+				
+				vk::DescriptorImageInfo normInfo = {};
+				normInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+				normInfo.imageView = gNormalView;
+				normInfo.sampler = gBufferSampler;
 
-			//descriptorWrites[0].dstSet = descriptorSet;
-			//descriptorWrites[0].dstBinding = 0;
-			//descriptorWrites[0].dstArrayElement = 0;
-			//descriptorWrites[0].descriptorType = vk::DescriptorType::eUniformBuffer;
-			//descriptorWrites[0].descriptorCount = 1;
-			//descriptorWrites[0].pBufferInfo = &bufferInfo;
-
-			//vulkan.device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+				descriptorWrites.push_back(vk::WriteDescriptorSet(gBufferSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &posInfo, nullptr));
+				descriptorWrites.push_back(vk::WriteDescriptorSet(gBufferSet, 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &normInfo, nullptr));
+			}
+			
+			vulkan.device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 		}
-
-		// Create gBuffer Set
-		{
-			//vk::DescriptorSetLayout layouts[] = { gBufferDescriptorLayout };
-			//vk::DescriptorSetAllocateInfo allocInfo = {};
-			//allocInfo.descriptorPool = descriptorPool;
-			//allocInfo.descriptorSetCount = 1;
-			//allocInfo.pSetLayouts = layouts;
-
-			//gBufferDescriptorSet = vulkan.device.allocateDescriptorSets(allocInfo)[0];
-
-			//vk::DescriptorImageInfo positionInfo = {};
-			//positionInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-			//positionInfo.imageView = gPositionView;
-			//positionInfo.sampler = textureImageSampler;
-
-			//vk::DescriptorImageInfo normalInfo = {};
-			//normalInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-			//normalInfo.imageView = gNormalView;
-			//normalInfo.sampler = textureImageSampler;
-
-			//std::array<vk::WriteDescriptorSet, 2> descriptorWrites = {};
-
-			//descriptorWrites[0].dstSet = gBufferDescriptorSet;
-			//descriptorWrites[0].dstBinding = 0;
-			//descriptorWrites[0].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			//descriptorWrites[0].descriptorCount = 1;
-			//descriptorWrites[0].pImageInfo = &positionInfo;
-
-			//descriptorWrites[1].dstSet = gBufferDescriptorSet;
-			//descriptorWrites[1].dstBinding = 1;
-			//descriptorWrites[1].descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			//descriptorWrites[1].descriptorCount = 1;
-			//descriptorWrites[1].pImageInfo = &normalInfo;
-
-			//vulkan.device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
-		}
-
 
 		// Create command buffers
 		{
@@ -829,7 +832,7 @@ int main() {
 				vk::RenderPassBeginInfo renderPassInfo(geometryPass, geometryFramebuffer, vk::Rect2D({ 0, 0, }, extent), 3, clearColors.data());
 				commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
 				commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, geometryPipeline);
-			//	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, geometryPipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+				commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, geometryPipelineLayout, 0, 1, &mvpBufferSet, 0, nullptr);
 
 				vk::DeviceSize offsets[] = { 0 };
 
@@ -861,13 +864,14 @@ int main() {
 
 				commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
 				commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, lightingPipeline);
-				//commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, &gBufferDescriptorSet, 0, nullptr);
+				commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, lightingPipelineLayout, 0, 1, &gBufferSet, 0, nullptr);
+				commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, lightingPipelineLayout, 1, 1, &lightBufferSet, 0, nullptr);
 
 				vk::DeviceSize offsets[] = { 0 };
 				
-				commandBuffer.bindVertexBuffers(0, 1, &vertexBuffer.buffer, offsets);
+				commandBuffer.bindVertexBuffers(0, 1, &screenQuadBuffer.buffer, offsets);
 				commandBuffer.bindIndexBuffer(indexBuffer.buffer, 0, vk::IndexType::eUint32);
-				commandBuffer.drawIndexed(tableMesh.indices.size(), 1, 0, 0, 0);
+				commandBuffer.draw(4, 1, 0, 0);
 				commandBuffer.endRenderPass();
 				commandBuffer.end();
 			}
@@ -884,18 +888,61 @@ int main() {
 		abort();
 	}
 
-	
-	
 
-	auto projection = glm::perspective(glm::radians(45.0f), extent.width / (float)extent.height, 0.1f, 100.0f);
-	auto view = glm::lookAt(glm::vec3(5.0f, 5.0f, 10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));;
-	projection[1][1] *= -1;
 	GeneralRenderUniforms ubo = {};
 	
-	ubo.view = view;
-	ubo.projection = projection;
+	std::chrono::high_resolution_clock clock;
+	auto lastTime = clock.now();
+	lights.pointLights[0].intensity = 3;
+
+	ubo.projection = camera.projection;
+	ubo.projection[1][1] *= -1;
 	while (window.isOpen()) {
 		glfwPollEvents();		
+
+		auto now = clock.now();
+		float deltaTime = std::chrono::duration<double>(now - lastTime).count();
+		lastTime = now;
+
+		// camera
+		{
+			static bool rightMouseButtonIsDown = false;
+			const float cameraSpeed = 15.0 * deltaTime;
+
+			if (glfwGetKey(window.nativeHandle, GLFW_KEY_W) == GLFW_PRESS) {
+				camera.transform.position += camera.forwards() * cameraSpeed;
+			}
+			if (glfwGetKey(window.nativeHandle, GLFW_KEY_S) == GLFW_PRESS) {
+				camera.transform.position -= camera.forwards() * cameraSpeed;
+			}
+			if (glfwGetKey(window.nativeHandle, GLFW_KEY_A) == GLFW_PRESS) {
+				camera.transform.position -= camera.right() * cameraSpeed;
+			}
+			if (glfwGetKey(window.nativeHandle, GLFW_KEY_D) == GLFW_PRESS) {
+				camera.transform.position += camera.right() * cameraSpeed;
+			}
+			if (glfwGetKey(window.nativeHandle, GLFW_KEY_SPACE) == GLFW_PRESS) {
+				camera.transform.position += glm::vec3(0, 1, 0) * cameraSpeed;
+			}
+			if (glfwGetKey(window.nativeHandle, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+				camera.transform.position += glm::vec3(0, -1, 0) * cameraSpeed;
+			}
+
+			static glm::highp_dvec2 lastMousePos;
+
+			if (glfwGetMouseButton(window.nativeHandle, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS) {
+				rightMouseButtonIsDown = true;
+				glm::highp_dvec2 mousePos;
+				glfwGetCursorPos(window.nativeHandle, &mousePos.x, &mousePos.y);
+				camera.yaw += (lastMousePos.x - mousePos.x) / -3;
+				camera.pitch += (lastMousePos.y - mousePos.y) / 4;
+			}
+			else {
+				rightMouseButtonIsDown = false;
+			}
+
+			glfwGetCursorPos(window.nativeHandle, &lastMousePos.x, &lastMousePos.y);
+		}
 
 		// Update uniforms
 		{
@@ -907,7 +954,8 @@ int main() {
 			float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.f;
 
 			
-			ubo.model = glm::rotate(glm::mat4(), time * glm::radians(90.f), glm::vec3(0.0, 0.0, 1.0));
+			ubo.model = glm::rotate(glm::mat4(), time * glm::radians(90.f), glm::vec3(0.0, 1.0, 0.0));
+			ubo.view = camera.getViewMatrix();
 
 			uniformBuffer.fill(&ubo, sizeof(ubo));
 
@@ -916,18 +964,19 @@ int main() {
 			// 10 seconds passed
 			if (time > 10) {
 				std::cout << "Rendered " << i << " frames in 10 seconds.\nFPS: " << i / 10 << "\n";
-				std::cin.get();
+				startTime = std::chrono::high_resolution_clock().now();
+				i = 0;
 			}
 		}
 
 
 		// Geometry pass
-		//{
-		//	vk::SubmitInfo submitInfo = {};
-		//	submitInfo.commandBufferCount = 1;
-		//	submitInfo.pCommandBuffers = &geometryPassCommandBuffer;
-		//	vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);
-		//}
+		{
+			vk::SubmitInfo submitInfo = {};
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &geometryPassCommandBuffer;
+			vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);
+		}
 
 		// Lighting pass  
 		{

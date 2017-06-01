@@ -15,8 +15,8 @@ out gl_PerVertex {
 
 void main() {
     gl_Position = vec4(inPosition, 1.0);
-	
-	fragPosition = inPosition;
+
+	fragPosition = vec4(inPosition, 1.0).rgb;
 	fragNormal = inNormal;
 	fragTexCoord = inTexCoord;
 }
