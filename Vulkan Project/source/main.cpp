@@ -1006,6 +1006,12 @@ int main() {
 			presentInfo.pImageIndices = &imageIndex;
 			
 			vulkan.presentQueue.presentKHR(presentInfo);
+
+			// Required to prevent Lunar SDK Validation Layers from leaking about 1mb/s of memory...
+			if (enableValidationLayers) {
+				vulkan.graphicsQueue.waitIdle();
+			}
+			
 		}
 	}
 
