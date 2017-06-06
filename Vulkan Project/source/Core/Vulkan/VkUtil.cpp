@@ -65,7 +65,7 @@ namespace VkUtil {
 		viewInfo.subresourceRange.aspectMask = flags;
 		viewInfo.subresourceRange.levelCount = 1;
 		viewInfo.subresourceRange.layerCount = 1;
-
+		
 		return vulkan.device.createImageView(viewInfo);
 	}
 
