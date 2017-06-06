@@ -25,6 +25,7 @@
 
 #include <Core/Vulkan/DeviceLocalBuffer.h>
 #include <Core/Vulkan/HostCoherentBuffer.h>
+#include <Core/Vulkan/PipelineFactory.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/image.h>
@@ -184,6 +185,7 @@ int main() {
 	Mesh tableMesh = MeshLoaders::load_ply("meshes/table.ply");
 	Material pbrMaterial;
 
+
 	Lights lights;
 	lights.pointLights[0].position = glm::vec3(-2, 5, 0);
 	lights.pointLights[1].position = glm::vec3(-4, -2, 1);
@@ -263,9 +265,25 @@ int main() {
 	};
 	screenQuadBuffer.fill(screenQuad, sizeof(Vertex) * 4);
 
+
+
+	Mesh unitCube = MeshLoaders::load_ply("meshes/UnitCube.ply");
+	DeviceLocalBuffer unitCubeVertexBuffer(vulkan, vk::BufferUsageFlagBits::eVertexBuffer);
+	DeviceLocalBuffer unitCubeIndexBuffer(vulkan, vk::BufferUsageFlagBits::eIndexBuffer);
+
+	unitCubeVertexBuffer.fill(unitCube.vertices.data(), sizeof(Vertex) * unitCube.vertices.size());
+	unitCubeIndexBuffer.fill(unitCube.indices.data(), sizeof(uint32) * unitCube.indices.size());
+
+
+
+
 	/*
 		Refactor
 	*/
+	vk::Viewport screenViewport;
+	vk::Rect2D screenScissor;
+
+
 	vk::DescriptorSetLayout gBufferLayout;
 	vk::DescriptorSetLayout mvpBufferLayout;
 	vk::DescriptorSetLayout lightBufferLayout;
@@ -325,6 +343,12 @@ int main() {
 		auto si = createSwapChain(vulkan, vulkan.instance, swapChain, vulkan.physicalDevice, vulkan.surface, vulkan.device, swapChainImages);
 		format = std::get<vk::Format>(si);
 		extent = std::get<vk::Extent2D>(si);
+
+		screenViewport.width = extent.width;
+		screenViewport.height = extent.height;
+		screenViewport.maxDepth = 1.0f;
+
+		screenScissor.extent = extent;
 
 		createImageViews(vulkan, swapChainImageViews, swapChainImages, format);
 	
@@ -394,72 +418,48 @@ int main() {
 		}
 
 		{
-			vk::PipelineShaderStageCreateInfo vertexShaderStageInfo({}, vk::ShaderStageFlagBits::eVertex, geometryVertexShader, "main");
-			vk::PipelineShaderStageCreateInfo fragmentShaderStageInfo({}, vk::ShaderStageFlagBits::eFragment, geometryFragmentShader, "main");
+			PipelineFactory factory;
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, geometryVertexShader, "main");
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, geometryFragmentShader, "main");
 
-			auto shaderStages = { vertexShaderStageInfo, fragmentShaderStageInfo };
-
-			vk::PipelineVertexInputStateCreateInfo vertexInputInfo = {};			
 			auto bindingDescription = Vertex::getBindingDescription();
 			auto attributeDescriptions = Vertex::getAttributeDescriptions();
-			vertexInputInfo.vertexBindingDescriptionCount = 1;
-			vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-			vertexInputInfo.vertexAttributeDescriptionCount = attributeDescriptions.size();
-			vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
-			vk::PipelineInputAssemblyStateCreateInfo inputAssembly({}, vk::PrimitiveTopology::eTriangleList, false);
-			vk::Viewport viewport = {};
-			viewport.width = (float)extent.width;
-			viewport.height = (float)extent.height;
-			viewport.maxDepth = 1.0f;
+			factory.vertexInput.vertexBindingDescriptionCount = 1;
+			factory.vertexInput.pVertexBindingDescriptions = &bindingDescription;
+			factory.vertexInput.vertexAttributeDescriptionCount = attributeDescriptions.size();
+			factory.vertexInput.pVertexAttributeDescriptions = attributeDescriptions.data();
 
-			vk::Rect2D scissor = {};
-			scissor.extent = extent;
+			factory.inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+			factory.viewport = screenViewport;
+			factory.scissor = screenScissor;
 
-			vk::PipelineViewportStateCreateInfo viewportState({}, 1, &viewport, 1, &scissor);
-			vk::PipelineRasterizationStateCreateInfo rasterizer = { };
-			rasterizer.polygonMode = vk::PolygonMode::eFill;
-			rasterizer.lineWidth = 1.0f;
-			rasterizer.cullMode = vk::CullModeFlagBits::eNone;
-			rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
+			factory.rasterizer.lineWidth = 1.0f;			
 			
 			vk::PipelineColorBlendAttachmentState colorBlendAttachment = {};
 			colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB;
-			colorBlendAttachment.blendEnable = false;
-
 			auto colorBlendAttachments = { colorBlendAttachment, colorBlendAttachment };
 
-			vk::PipelineMultisampleStateCreateInfo multisampling({}, vk::SampleCountFlagBits::e1, false);
-			vk::PipelineColorBlendStateCreateInfo colorBlending({}, false, {}, 2, colorBlendAttachments.begin());
+			factory.colorBlending.attachmentCount = 2;
+			factory.colorBlending.pAttachments = colorBlendAttachments.begin();
+	
+			factory.multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+
+			factory.depthStencil.depthTestEnable = true;
+			factory.depthStencil.depthWriteEnable = true;
+			factory.depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
 			
-			vk::PipelineDepthStencilStateCreateInfo depthStencil = {};
-			depthStencil.depthTestEnable = true;
-			depthStencil.depthWriteEnable = true;
-			depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
 			
 			auto setLayouts = { mvpBufferLayout };
 
 			vk::PipelineLayoutCreateInfo pipelineLayoutInfo = {};
 			pipelineLayoutInfo.setLayoutCount = setLayouts.size();
-			pipelineLayoutInfo.pSetLayouts = setLayouts.begin();
-			
+			pipelineLayoutInfo.pSetLayouts = setLayouts.begin();			
 			geometryPipelineLayout = vulkan.device.createPipelineLayout(pipelineLayoutInfo);
-
-
-			vk::GraphicsPipelineCreateInfo pipelineInfo = {};
-			pipelineInfo.stageCount = shaderStages.size();
-			pipelineInfo.pStages = shaderStages.begin();
-			pipelineInfo.pVertexInputState = &vertexInputInfo;
-			pipelineInfo.pInputAssemblyState = &inputAssembly;
-			pipelineInfo.pViewportState = &viewportState;
-			pipelineInfo.pRasterizationState = &rasterizer;
-			pipelineInfo.pMultisampleState = &multisampling;
-			pipelineInfo.pDepthStencilState = &depthStencil;
-			pipelineInfo.pColorBlendState = &colorBlending;
-			pipelineInfo.layout = geometryPipelineLayout;
-			pipelineInfo.renderPass = geometryPass;
-
-			geometryPipeline = vulkan.device.createGraphicsPipeline(nullptr, pipelineInfo);
+			
+			factory.layout = geometryPipelineLayout;
+			factory.renderPass = geometryPass;
+			geometryPipeline = factory.createPipeline(vulkan.device);
 		}
 
 		
@@ -499,31 +499,19 @@ int main() {
 
 		/* Create lighting pipeline */
 		{
-			vk::PipelineShaderStageCreateInfo vertexShaderInfo;
-			vertexShaderInfo.module = lightingVertexShader;
-			vertexShaderInfo.pName = "main";
-			vertexShaderInfo.stage = vk::ShaderStageFlagBits::eVertex;
-
-			vk::PipelineShaderStageCreateInfo fragmentShaderInfo;
-			fragmentShaderInfo.module = lightingFragmentShader;
-			fragmentShaderInfo.pName = "main";
-			fragmentShaderInfo.stage = vk::ShaderStageFlagBits::eFragment;
-
-			auto shaders = { vertexShaderInfo, fragmentShaderInfo };
+			PipelineFactory factory;
+			
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, lightingVertexShader, "main");
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, lightingFragmentShader, "main");
 
 			auto& binding = Vertex::getBindingDescription();
 			auto& attributes = Vertex::getAttributeDescriptions();
-			vk::PipelineVertexInputStateCreateInfo vertexInfo;
-			vertexInfo.vertexBindingDescriptionCount = 1;
-			vertexInfo.pVertexBindingDescriptions = &binding;
-			vertexInfo.vertexAttributeDescriptionCount = attributes.size();
-			vertexInfo.pVertexAttributeDescriptions = attributes.data();
-		
+			factory.vertexInput.vertexBindingDescriptionCount = 1;
+			factory.vertexInput.pVertexBindingDescriptions = &binding;
+			factory.vertexInput.vertexAttributeDescriptionCount = attributes.size();
+			factory.vertexInput.pVertexAttributeDescriptions = attributes.data();
 
-			vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
-			inputAssembly.topology = vk::PrimitiveTopology::eTriangleStrip;
-			inputAssembly.primitiveRestartEnable = false;
-			
+			factory.inputAssembly.topology = vk::PrimitiveTopology::eTriangleStrip;
 			vk::Viewport viewport;
 			viewport.width = extent.width;
 			viewport.height = extent.height;
@@ -535,58 +523,33 @@ int main() {
 			scissor.extent = extent;
 			scissor.offset = { 0, 0, };
 
-			vk::PipelineViewportStateCreateInfo viewportState;
-			viewportState.viewportCount = 1;
-			viewportState.pViewports = &viewport;
-			viewportState.scissorCount = 1;
-			viewportState.pScissors = &scissor;
+			factory.viewport = screenViewport;
+			factory.scissor = screenScissor;
 
-			vk::PipelineRasterizationStateCreateInfo rasterizer;
-			rasterizer.cullMode = vk::CullModeFlagBits::eNone;
-			rasterizer.lineWidth = 1.0f;
-			rasterizer.polygonMode = vk::PolygonMode::eFill;
-			rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
-			rasterizer.rasterizerDiscardEnable = false;
-			rasterizer.depthBiasEnable = false;
+			factory.rasterizer.lineWidth = 1.0f;
+
 			
 			vk::PipelineColorBlendAttachmentState colorBlendAttachment = {};
 			colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
 			colorBlendAttachment.blendEnable = false;
 			
 			auto colorBlendAttachments = { colorBlendAttachment };
+			factory.colorBlending.attachmentCount = colorBlendAttachments.size();
+			factory.colorBlending.pAttachments = colorBlendAttachments.begin();
 
-			vk::PipelineMultisampleStateCreateInfo multisampling({}, vk::SampleCountFlagBits::e1, false);
-			multisampling.sampleShadingEnable = false;
-			multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
-
-			vk::PipelineColorBlendStateCreateInfo colorBlending({}, false, {}, 1, colorBlendAttachments.begin());
+			factory.multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
 
 			auto layouts = { gBufferLayout, lightBufferLayout };
-
 			vk::PipelineLayoutCreateInfo layoutInfo;
 			layoutInfo.setLayoutCount = layouts.size();
 			layoutInfo.pSetLayouts = layouts.begin();
-			layoutInfo.pushConstantRangeCount = 0;
 
 			lightingPipelineLayout = vulkan.device.createPipelineLayout(layoutInfo);
 
-			vk::GraphicsPipelineCreateInfo createInfo;
-			createInfo.renderPass = lightingPass;
-			createInfo.layout = lightingPipelineLayout;
-			createInfo.pColorBlendState = &colorBlending;
-			createInfo.pInputAssemblyState = &inputAssembly;
-			createInfo.pMultisampleState = &multisampling;
-			createInfo.pRasterizationState = &rasterizer;
-			createInfo.pStages = shaders.begin();;
-			createInfo.stageCount = shaders.size();
-			createInfo.pVertexInputState = &vertexInfo;
-			createInfo.pViewportState = &viewportState;
-			createInfo.pDepthStencilState = nullptr;
-			createInfo.pDynamicState = nullptr;
+			factory.layout = lightingPipelineLayout;
+			factory.renderPass = lightingPass;
 
-			createInfo.subpass = 0;
-
-			lightingPipeline = vulkan.device.createGraphicsPipeline(nullptr, createInfo);
+			lightingPipeline = factory.createPipeline(vulkan.device);
 		
 		}
 
