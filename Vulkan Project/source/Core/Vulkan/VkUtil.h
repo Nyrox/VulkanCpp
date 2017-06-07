@@ -10,4 +10,7 @@ namespace VkUtil {
 	void copyBufferToImage(VulkanInstance&, vk::Buffer buffer, vk::Image image, vk::Extent2D);
 
 	void transitionImageLayout(VulkanInstance&, vk::Image, vk::Format, vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
+
 }
+
+

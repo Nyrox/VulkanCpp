@@ -179,7 +179,7 @@ void createImageViews(VulkanInstance& vulkan, std::vector<vk::ImageView>& swapCh
 
 }
 
-void createShaderModule(const std::vector<int8>& code, vk::Device device, vk::ShaderModule& shaderModule) {
+vk::ShaderModule createShaderModule(const std::vector<int8>& code, vk::Device device) {
 	vk::ShaderModuleCreateInfo createInfo = {};
 	createInfo.codeSize = code.size();
 
@@ -187,7 +187,7 @@ void createShaderModule(const std::vector<int8>& code, vk::Device device, vk::Sh
 	memcpy(codeAligned.data(), code.data(), code.size());
 	createInfo.pCode = codeAligned.data();
 
-	shaderModule = device.createShaderModule(createInfo);
+	return device.createShaderModule(createInfo);
 }
 
 int main() {
@@ -328,94 +328,13 @@ int main() {
 	vk::CommandBuffer cubemapCommandBuffer;
 
 
+	vk::Sampler plainSampler;
 	{
-		std::array<vk::AttachmentDescription, 1> attachments;
-		attachments[0].format = vk::Format::eR8G8B8A8Unorm;	
-		attachments[0].samples = vk::SampleCountFlagBits::e1;
-		attachments[0].loadOp = vk::AttachmentLoadOp::eClear;
-		attachments[0].storeOp = vk::AttachmentStoreOp::eStore;
-		attachments[0].stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-		attachments[0].stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-		attachments[0].initialLayout = vk::ImageLayout::eUndefined;
-		attachments[0].finalLayout = vk::ImageLayout::eColorAttachmentOptimal;
+		vk::SamplerCreateInfo samplerInfo;
 		
-		vk::AttachmentReference ref;
-		ref.attachment = 0;
-		ref.layout = vk::ImageLayout::eColorAttachmentOptimal;
-		
-		vk::SubpassDescription subpass;
-		subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
-		subpass.colorAttachmentCount = 1;
-		subpass.pColorAttachments = &ref;
-
-		vk::RenderPassCreateInfo renderPassInfo;
-		renderPassInfo.attachmentCount = attachments.size();
-		renderPassInfo.pAttachments = attachments.data();
-		renderPassInfo.subpassCount = 1;
-		renderPassInfo.pSubpasses = &subpass;
-
-		vk::SubpassDependency dependency;
-		dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-		dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-
-		renderPassInfo.dependencyCount = 1;
-		renderPassInfo.pDependencies = &dependency;
-
-		cubemappingPipeline.renderPass = vulkan.device.createRenderPass(renderPassInfo);
+		plainSampler = vulkan.device.createSampler(samplerInfo);
 	}
-	{
-		PipelineFactory factory;
 	
-	}
-
-	// Create descriptor set layouts 
-	{
-		{
-			vk::DescriptorSetLayoutBinding mvpLayoutBinding = {};
-			mvpLayoutBinding.binding = 0;
-			mvpLayoutBinding.descriptorCount = 1;
-			mvpLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
-			mvpLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
-
-			vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
-			layoutInfo.bindingCount = 1;
-			layoutInfo.pBindings = &mvpLayoutBinding;
-
-			mvpBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
-		}
-
-		{
-			vk::DescriptorSetLayoutBinding positionBuffer = {};
-			positionBuffer.binding = 0;
-			positionBuffer.descriptorCount = 1;
-			positionBuffer.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			positionBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
-
-			vk::DescriptorSetLayoutBinding normalBuffer = {};
-			normalBuffer.binding = 1;
-			normalBuffer.descriptorCount = 1;
-			normalBuffer.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			normalBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
-
-			auto gBufferBindings = { positionBuffer, normalBuffer };
-			vk::DescriptorSetLayoutCreateInfo layoutInfo({}, gBufferBindings.size(), gBufferBindings.begin());
-			gBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
-		}
-
-		{
-			vk::DescriptorSetLayoutBinding lightBuffer = {};
-			lightBuffer.binding = 0;
-			lightBuffer.descriptorCount = 1;
-			lightBuffer.descriptorType = vk::DescriptorType::eUniformBuffer;
-			lightBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
-
-			vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &lightBuffer);
-			lightBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
-		}
-	}
-
-
 
 	try {
 		auto si = createSwapChain(vulkan, vulkan.instance, swapChain, vulkan.physicalDevice, vulkan.surface, vulkan.device, swapChainImages);
@@ -430,12 +349,58 @@ int main() {
 
 		createImageViews(vulkan, swapChainImageViews, swapChainImages, format);
 	
+		// Create descriptor set layouts 
+		{
+			{
+				vk::DescriptorSetLayoutBinding mvpLayoutBinding = {};
+				mvpLayoutBinding.binding = 0;
+				mvpLayoutBinding.descriptorCount = 1;
+				mvpLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+				mvpLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
+
+				vk::DescriptorSetLayoutCreateInfo layoutInfo = {};
+				layoutInfo.bindingCount = 1;
+				layoutInfo.pBindings = &mvpLayoutBinding;
+
+				mvpBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+			}
+
+			{
+				vk::DescriptorSetLayoutBinding positionBuffer = {};
+				positionBuffer.binding = 0;
+				positionBuffer.descriptorCount = 1;
+				positionBuffer.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+				positionBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+				vk::DescriptorSetLayoutBinding normalBuffer = {};
+				normalBuffer.binding = 1;
+				normalBuffer.descriptorCount = 1;
+				normalBuffer.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+				normalBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+				auto gBufferBindings = { positionBuffer, normalBuffer };
+				vk::DescriptorSetLayoutCreateInfo layoutInfo({}, gBufferBindings.size(), gBufferBindings.begin());
+				gBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+			}
+
+			{
+				vk::DescriptorSetLayoutBinding lightBuffer = {};
+				lightBuffer.binding = 0;
+				lightBuffer.descriptorCount = 1;
+				lightBuffer.descriptorType = vk::DescriptorType::eUniformBuffer;
+				lightBuffer.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+				vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &lightBuffer);
+				lightBufferLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+			}
+		}
+
 		auto vertShaderCode = FUtil::file_read_binary("shaders/tri.vert.spv");
 		auto fragShaderCode = FUtil::file_read_binary("shaders/tri.frag.spv");
 
 		/* Create deferred render pipeline */
-		createShaderModule(FUtil::file_read_binary("shaders/geom.vert.spv"), vulkan.device, geometryVertexShader);
-		createShaderModule(FUtil::file_read_binary("shaders/geom.frag.spv"), vulkan.device, geometryFragmentShader);
+		geometryVertexShader = createShaderModule(FUtil::file_read_binary("shaders/geom.vert.spv"), vulkan.device);
+		geometryFragmentShader = createShaderModule(FUtil::file_read_binary("shaders/geom.frag.spv"), vulkan.device);
 
 		/* Create render pass */
 		{
@@ -542,8 +507,8 @@ int main() {
 
 		
 		/* Create lighting pass render pipeline */
-		createShaderModule(FUtil::file_read_binary("shaders/tri.vert.spv"), vulkan.device, lightingVertexShader);
-		createShaderModule(FUtil::file_read_binary("shaders/tri.frag.spv"), vulkan.device, lightingFragmentShader);
+		lightingVertexShader = createShaderModule(FUtil::file_read_binary("shaders/tri.vert.spv"), vulkan.device);
+		lightingFragmentShader = createShaderModule(FUtil::file_read_binary("shaders/tri.frag.spv"), vulkan.device);
 
 		/* Create render pass */
 		{
@@ -642,6 +607,43 @@ int main() {
 			lightingPipeline = factory.createPipeline(vulkan.device);		
 		}
 
+		{
+			std::array<vk::AttachmentDescription, 1> attachments;
+			attachments[0].format = vk::Format::eR8G8B8A8Unorm;
+			attachments[0].samples = vk::SampleCountFlagBits::e1;
+			attachments[0].loadOp = vk::AttachmentLoadOp::eClear;
+			attachments[0].storeOp = vk::AttachmentStoreOp::eStore;
+			attachments[0].stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+			attachments[0].stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+			attachments[0].initialLayout = vk::ImageLayout::eUndefined;
+			attachments[0].finalLayout = vk::ImageLayout::eColorAttachmentOptimal;
+
+			vk::AttachmentReference ref;
+			ref.attachment = 0;
+			ref.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+			vk::SubpassDescription subpass;
+			subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+			subpass.colorAttachmentCount = 1;
+			subpass.pColorAttachments = &ref;
+
+			vk::RenderPassCreateInfo renderPassInfo;
+			renderPassInfo.attachmentCount = attachments.size();
+			renderPassInfo.pAttachments = attachments.data();
+			renderPassInfo.subpassCount = 1;
+			renderPassInfo.pSubpasses = &subpass;
+
+			vk::SubpassDependency dependency;
+			dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+			dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+			dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+
+			renderPassInfo.dependencyCount = 1;
+			renderPassInfo.pDependencies = &dependency;
+
+			cubemappingPipeline.renderPass = vulkan.device.createRenderPass(renderPassInfo);
+		}
+
 
 		{
 			vk::ImageCreateInfo imageInfo;
@@ -652,7 +654,7 @@ int main() {
 			imageInfo.format = vk::Format::eR8G8B8A8Unorm;
 			imageInfo.tiling = vk::ImageTiling::eOptimal;
 			imageInfo.initialLayout = vk::ImageLayout::ePreinitialized;
-			imageInfo.usage = vk::ImageUsageFlagBits::eColorAttachment;
+			imageInfo.usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
 			imageInfo.sharingMode = vk::SharingMode::eExclusive;
 			imageInfo.samples = vk::SampleCountFlagBits::e1;
 			environmentCubemap.image = vulkan.device.createImage(imageInfo);
@@ -676,7 +678,7 @@ int main() {
 				viewInfo.subresourceRange.levelCount = 1;
 				viewInfo.subresourceRange.layerCount = 1;
 				viewInfo.subresourceRange.baseArrayLayer = i;
-
+			
 				environmentCubemap.faceViews[i] = vulkan.device.createImageView(viewInfo);
 
 
@@ -687,9 +689,67 @@ int main() {
 				fbInfo.width = extent.width;
 				fbInfo.layers = 1;
 				fbInfo.renderPass = cubemappingPipeline.renderPass;
-				
+
 				environmentCubemap.faceFBOs[i] = vulkan.device.createFramebuffer(fbInfo);
 			}
+		}
+
+
+
+
+
+		{
+			PipelineFactory factory;
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, createShaderModule(FUtil::file_read_binary("shaders/equi_to_cube.vert.spv"), vulkan.device), "main");
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, createShaderModule(FUtil::file_read_binary("shaders/equi_to_cube.frag.spv"), vulkan.device), "main");
+
+
+			auto bindingDescription = Vertex::getBindingDescription();
+			auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
+			factory.vertexInput.vertexBindingDescriptionCount = 1;
+			factory.vertexInput.pVertexBindingDescriptions = &bindingDescription;
+			factory.vertexInput.vertexAttributeDescriptionCount = attributeDescriptions.size();
+			factory.vertexInput.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+			factory.inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+			factory.viewport = screenViewport;
+			factory.scissor = screenScissor;
+
+			factory.rasterizer.lineWidth = 1.0f;
+
+			vk::PipelineColorBlendAttachmentState colorBlendAttachment = {};
+			colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB;
+			auto colorBlendAttachments = { colorBlendAttachment };
+
+			factory.colorBlending.attachmentCount = 1;
+			factory.colorBlending.pAttachments = colorBlendAttachments.begin();
+
+			factory.multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+
+			factory.depthStencil.depthTestEnable = true;
+			factory.depthStencil.depthWriteEnable = true;
+			factory.depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
+
+
+			auto setLayouts = { mvpBufferLayout, envMapLayout };
+
+			vk::PushConstantRange pushConstant;
+			pushConstant.offset = 0;
+			pushConstant.size = sizeof(glm::mat4);
+			pushConstant.stageFlags = vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eVertex;
+
+			vk::PipelineLayoutCreateInfo pipelineLayoutInfo = {};
+			pipelineLayoutInfo.setLayoutCount = setLayouts.size();
+			pipelineLayoutInfo.pSetLayouts = setLayouts.begin();
+			pipelineLayoutInfo.pushConstantRangeCount = 1;
+			pipelineLayoutInfo.pPushConstantRanges = &pushConstant;
+
+			cubemappingPipeline.layout = vulkan.device.createPipelineLayout(pipelineLayoutInfo);
+
+			factory.layout = cubemappingPipeline.layout;
+			factory.renderPass = cubemappingPipeline.renderPass;
+			cubemappingPipeline.pipeline = factory.createPipeline(vulkan.device);
 		}
 
 		// Create depth buffer
@@ -893,7 +953,7 @@ int main() {
 				vk::DescriptorImageInfo envMapInfo = {};
 				envMapInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 				envMapInfo.imageView = environmentMapView;
-				envMapInfo.sampler = textureImageSampler;
+				envMapInfo.sampler = plainSampler;
 
 				descriptorWrites.push_back(vk::WriteDescriptorSet(envMapSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &envMapInfo, nullptr));
 			}
@@ -933,8 +993,53 @@ int main() {
 
 		// record commands
 		{
+			// Cubemap
+			{
+				auto& cb = cubemapCommandBuffer;
+				cb.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eSimultaneousUse));
+
+				std::array<vk::ClearValue, 1> clearColors = {};
+				clearColors[0].color = vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 0.0f });
+
+				glm::mat4 captureViews[] =
+				{
+					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
+					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
+					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)),
+					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)),
+					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
+					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
+				};
+
+				for (int i = 0; i < 6; i++) {
+
+					vk::RenderPassBeginInfo rInfo;
+					rInfo.renderPass = cubemappingPipeline.renderPass;
+					rInfo.framebuffer = environmentCubemap.faceFBOs[i];
+					rInfo.clearValueCount = clearColors.size();
+					rInfo.pClearValues = clearColors.data();
+					rInfo.renderArea = vk::Rect2D({ 0, 0, }, extent);
+
+					cb.beginRenderPass(rInfo, vk::SubpassContents::eInline);
+
+					cb.bindPipeline(vk::PipelineBindPoint::eGraphics, cubemappingPipeline.pipeline);
+					cb.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, cubemappingPipeline.layout, 0, 1, &mvpBufferSet, 0, nullptr);
+					cb.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, cubemappingPipeline.layout, 1, 1, &envMapSet, 0, nullptr);
+
+					vk::DeviceSize offsets[] = { 0 };
+					cb.bindVertexBuffers(0, 1, &unitCubeVertexBuffer.buffer, offsets);
+					cb.bindIndexBuffer(unitCubeIndexBuffer.buffer, 0, vk::IndexType::eUint32);
+					cb.pushConstants(cubemappingPipeline.layout, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0, sizeof(glm::mat4), &captureViews[i]);
+					cb.drawIndexed(unitCube.indices.size(), 1, 0, 0, 0);
+
+					cb.endRenderPass();
+				}
+
+
+				cb.end();
+			}
+
 			 // Geometry pass
-			
 			{
 				auto& commandBuffer = geometryPassCommandBuffer;
 
@@ -1008,6 +1113,7 @@ int main() {
 		abort();
 	}
 
+	glfwSetInputMode(window.nativeHandle, GLFW_STICKY_KEYS, 1);
 
 	GeneralRenderUniforms ubo = {};
 	
@@ -1064,6 +1170,24 @@ int main() {
 			glfwGetCursorPos(window.nativeHandle, &lastMousePos.x, &lastMousePos.y);
 		}
 
+		static bool r = true;
+		if (glfwGetKey(window.nativeHandle, GLFW_KEY_Q) == GLFW_RELEASE) {
+			r = !r;
+		}
+
+		glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+		GeneralRenderUniforms ubo;
+		ubo.projection = captureProjection;
+		
+		// Cubemapping
+		{
+			vk::SubmitInfo submitInfo;
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &cubemapCommandBuffer;
+			vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);
+		}
+
+
 		// Update uniforms
 		{
 			static auto startTime = std::chrono::high_resolution_clock().now();
@@ -1073,9 +1197,11 @@ int main() {
 			auto currentTime = std::chrono::high_resolution_clock().now();
 			float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.f;
 
+			ubo.model = glm::rotate(glm::mat4(), 1.f, glm::vec3(0.0, 1.0, 0.0));
 			
-			ubo.model = glm::rotate(glm::mat4(), time * glm::radians(90.f), glm::vec3(0.0, 1.0, 0.0));
 			ubo.view = camera.getViewMatrix();
+			ubo.projection = camera.projection;
+			ubo.projection[1][1] *= -1;
 
 			uniformBuffer.fill(&ubo, sizeof(ubo));
 
@@ -1097,10 +1223,12 @@ int main() {
 			submitInfo.pCommandBuffers = &geometryPassCommandBuffer;
 			vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);
 		}
+		vulkan.graphicsQueue.waitIdle();
+		uint32_t imageIndex = vulkan.device.acquireNextImageKHR(swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, nullptr).value;
+
 
 		// Lighting pass  
 		{
-			uint32_t imageIndex = vulkan.device.acquireNextImageKHR(swapChain, std::numeric_limits<uint64_t>::max(), imageAvailableSemaphore, nullptr).value;
 			
 			vk::SubmitInfo submitInfo = {};
 			submitInfo.commandBufferCount = 1;
@@ -1114,24 +1242,23 @@ int main() {
 			submitInfo.signalSemaphoreCount = 1;
 			submitInfo.pSignalSemaphores = &renderFinishedSemaphore;
 
-			vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);
+			vulkan.graphicsQueue.submit(1, &submitInfo, nullptr);			
+		}
 
-			// Wait with presenting till rendering has finished
-			vk::PresentInfoKHR presentInfo = {};
-			presentInfo.waitSemaphoreCount = 1;
-			presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
+		// Wait with presenting till rendering has finished
+		vk::PresentInfoKHR presentInfo = {};
+		presentInfo.waitSemaphoreCount = 1;
+		presentInfo.pWaitSemaphores = &renderFinishedSemaphore;
 
-			presentInfo.swapchainCount = 1;
-			presentInfo.pSwapchains = &swapChain;
-			presentInfo.pImageIndices = &imageIndex;
-			
-			vulkan.presentQueue.presentKHR(presentInfo);
+		presentInfo.swapchainCount = 1;
+		presentInfo.pSwapchains = &swapChain;
+		presentInfo.pImageIndices = &imageIndex;
 
-			// Required to prevent Lunar SDK Validation Layers from leaking about 1mb/s of memory...
-			if (enableValidationLayers) {
-				vulkan.graphicsQueue.waitIdle();
-			}
-			
+		vulkan.presentQueue.presentKHR(presentInfo);
+
+		// Required to prevent Lunar SDK Validation Layers from leaking about 1mb/s of memory...
+		if (enableValidationLayers) {
+			vulkan.graphicsQueue.waitIdle();
 		}
 	}
 

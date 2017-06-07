@@ -42,5 +42,7 @@ vk::Pipeline PipelineFactory::createPipeline(vk::Device device) const {
 	pipelineInfo.layout = layout;
 	pipelineInfo.renderPass = renderPass;
 
+
+
 	return device.createGraphicsPipeline(nullptr, pipelineInfo);
 }

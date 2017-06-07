@@ -20,7 +20,8 @@ layout(binding = 0) uniform MVPBuffer {
 } mvp;
 
 void main() {
-	gl_Position = mvp.projection * mvp.view * mvp.model * vec4(inPosition, 1.0);
+	gl_Position = (mat4(mat3(mvp.view)) * vec4(inPosition, 1.0)).xyzz;
+
 	fragPosition = (mvp.model * vec4(inPosition, 1.0)).xyz;
 	fragNormal = mat3(transpose(inverse(mvp.model))) * inNormal;
 	fragTexCoord = inTexCoord;
