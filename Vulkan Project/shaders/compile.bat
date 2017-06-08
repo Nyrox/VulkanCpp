@@ -1,7 +1,10 @@
-glslangValidator.exe -V -o geom.vert.spv geom.vert
-glslangValidator.exe -V -o geom.frag.spv geom.frag
-glslangValidator.exe -V -o tri.vert.spv tri.vert
-glslangValidator.exe -V -o tri.frag.spv tri.frag
-glslangValidator.exe -V -o equi_to_cube.vert.spv equi_to_cube.vert
-glslangValidator.exe -V -o equi_to_cube.frag.spv equi_to_cube.frag
+
+glslangValidator.exe -V -o compiled/process/equi_to_cube.vert.spv process/equi_to_cube.vert
+glslangValidator.exe -V -o compiled/process/equi_to_cube.frag.spv process/equi_to_cube.frag
+
+glslangValidator.exe -V -o compiled/deferred/geometry_pass.vert.spv deferred/geometry_pass.vert
+glslangValidator.exe -V -o compiled/deferred/geometry_pass.frag.spv deferred/geometry_pass.frag
+glslangValidator.exe -V -o compiled/deferred/lighting_pass.vert.spv deferred/lighting_pass.vert
+glslangValidator.exe -V -o compiled/deferred/lighting_pass.frag.spv deferred/lighting_pass.frag
+
 pause

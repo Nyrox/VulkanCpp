@@ -9,18 +9,19 @@ layout(location = 0) out vec3 fragPosition;
 layout(location = 1) out vec3 fragNormal;
 layout(location = 2) out vec2 fragTexCoord;
 
+
 out gl_PerVertex {
 	vec4 gl_Position;
 };
 
-layout(binding = 0) uniform MVPBuffer {
+layout(set = 0, binding = 0) uniform MVPBuffer {
 	mat4 model;
 	mat4 view;
 	mat4 projection;
 } mvp;
 
 void main() {
-	gl_Position = (mat4(mat3(mvp.view)) * vec4(inPosition, 1.0)).xyzz;
+	gl_Position = mvp.projection * mvp.view * mvp.model * vec4(inPosition, 1.0);
 
 	fragPosition = (mvp.model * vec4(inPosition, 1.0)).xyz;
 	fragNormal = mat3(transpose(inverse(mvp.model))) * inNormal;

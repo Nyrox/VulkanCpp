@@ -103,12 +103,8 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\tri.vert" />
-    <None Include="shaders\tri.frag" />
     <None Include="shaders\compile.bat">
       <Filter>Quelldateien</Filter>
     </None>
-    <None Include="shaders\geom.frag" />
-    <None Include="shaders\geom.vert" />
   </ItemGroup>
 </Project>

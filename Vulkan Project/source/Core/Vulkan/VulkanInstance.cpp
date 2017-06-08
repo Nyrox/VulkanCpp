@@ -90,7 +90,7 @@ void VulkanInstance::createVulkanInstance() {
 
 	// Double check for validation layer support
 	if (enableValidationLayers && !checkValidationLayerSupport())
-		throw std::runtime_error("Validation layers requested, but not vailable! Try installing the Lunar Vulkan SDK.");
+		throw std::runtime_error("Validation layers requested, but not available! Try installing the Lunar Vulkan SDK.");
 
 	if (enableValidationLayers) {
 		createInfo.enabledLayerCount = validationLayers.size();

@@ -9,6 +9,7 @@ layout(location = 2) in vec2 fragTexCoord;
 layout(location = 0) out vec3 outPosition;
 layout(location = 1) out vec3 outNormal;
 
+
 void main() {
 	outPosition = fragPosition;
 	outNormal = fragNormal;
