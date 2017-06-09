@@ -7,4 +7,8 @@ glslangValidator.exe -V -o compiled/deferred/geometry_pass.frag.spv deferred/geo
 glslangValidator.exe -V -o compiled/deferred/lighting_pass.vert.spv deferred/lighting_pass.vert
 glslangValidator.exe -V -o compiled/deferred/lighting_pass.frag.spv deferred/lighting_pass.frag
 
+glslangValidator.exe -V -o compiled/forward/skybox.vert.spv forward/skybox.vert
+glslangValidator.exe -V -o compiled/forward/skybox.frag.spv forward/skybox.frag
+
+
 pause

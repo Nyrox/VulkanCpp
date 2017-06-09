@@ -7,8 +7,8 @@ struct Vertex {
 	glm::vec3 normal;
 	glm::vec2 texCoord;
 
-	static vk::VertexInputBindingDescription getBindingDescription() {
-		vk::VertexInputBindingDescription bindingDescription = {};
+	static vk::VertexInputBindingDescription& getBindingDescription() {
+		static vk::VertexInputBindingDescription bindingDescription = {};
 
 		bindingDescription.stride = sizeof(Vertex);
 		bindingDescription.binding = 0;
@@ -17,8 +17,8 @@ struct Vertex {
 		return bindingDescription;
 	}
 
-	static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions() {
-		std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions = {};
+	static std::array<vk::VertexInputAttributeDescription, 3>& getAttributeDescriptions() {
+		static std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions = {};
 
 		attributeDescriptions[0].binding = 0;
 		attributeDescriptions[0].location = 0;
@@ -36,5 +36,18 @@ struct Vertex {
 		attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
 
 		return attributeDescriptions;
+	}
+
+	static vk::PipelineVertexInputStateCreateInfo getVertexInputState() {
+		auto& binding = Vertex::getBindingDescription();
+		auto& attributes = Vertex::getAttributeDescriptions();
+
+		vk::PipelineVertexInputStateCreateInfo createInfo;
+		createInfo.pVertexAttributeDescriptions = attributes.data();
+		createInfo.pVertexBindingDescriptions = &binding;
+		createInfo.vertexAttributeDescriptionCount = attributes.size();
+		createInfo.vertexBindingDescriptionCount = 1;
+
+		return createInfo;	
 	}
 };

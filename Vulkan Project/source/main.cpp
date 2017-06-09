@@ -202,7 +202,7 @@ int main() {
 	lights.pointLights[0].position = glm::vec3(-2, 5, 0);
 	lights.pointLights[1].position = glm::vec3(-4, -2, 1);
 
-	lights.pointLightCount = 1;
+	lights.pointLightCount = 2;
 
 	vk::Format format;
 	vk::Extent2D extent;
@@ -344,12 +344,19 @@ int main() {
 	vk::Sampler plainSampler;
 	{
 		vk::SamplerCreateInfo samplerInfo;
+		samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
+		samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
+		samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
+
 		plainSampler = vulkan.device.createSampler(samplerInfo);
 	}
 	
-	vk::DescriptorSetLayout environmentMapLayout;
-	vk::DescriptorSet environmentMapSet;
+	vk::DescriptorSetLayout skyboxSetLayout;
+	vk::DescriptorSet skyboxSet;
 
+	vk::Pipeline skyboxPipeline;
+	vk::PipelineLayout skyboxPipelineLayout;
+	vk::RenderPass skyboxPass;
 
 	try {
 		// Create descriptor pool
@@ -679,6 +686,7 @@ int main() {
 					glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
 				};
 				glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+				captureProjection[1][1] *= -1;
 
 				for (int i = 0; i < 6; i++) {
 
@@ -763,14 +771,14 @@ int main() {
 		}
 
 		{
-			vk::DescriptorSetLayoutBinding envMap = {};
-			envMap.binding = 0;
-			envMap.descriptorCount = 1;
-			envMap.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-			envMap.stageFlags = vk::ShaderStageFlagBits::eFragment;
+			vk::DescriptorSetLayoutBinding skybox = {};
+			skybox.binding = 0;
+			skybox.descriptorCount = 1;
+			skybox.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+			skybox.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
-			vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &envMap);
-			environmentMapLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
+			vk::DescriptorSetLayoutCreateInfo layoutInfo({}, 1, &skybox);
+			skyboxSetLayout = vulkan.device.createDescriptorSetLayout(layoutInfo);
 		}
 
 		/* Create deferred render pipeline */
@@ -805,7 +813,8 @@ int main() {
 
 			vk::AttachmentDescription depthAttachment = attachmentBlueprint;
 			depthAttachment.format = vk::Format::eD32Sfloat;
-			depthAttachment.storeOp = vk::AttachmentStoreOp::eDontCare;
+			depthAttachment.storeOp = vk::AttachmentStoreOp::eStore;
+			depthAttachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
 			vk::AttachmentReference depthAttachmentRef(2, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
 			auto colorAttachments = { positionAttachmentRef, normalAttachmentRef };
@@ -853,6 +862,8 @@ int main() {
 			factory.scissor = screenScissor;
 
 			factory.rasterizer.lineWidth = 1.0f;
+			factory.depthStencil.depthTestEnable = true;
+			factory.depthStencil.depthWriteEnable = true;
 
 			vk::PipelineColorBlendAttachmentState colorBlendAttachment = {};
 			colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB;
@@ -897,18 +908,35 @@ int main() {
 			colorAttachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
 			colorAttachment.samples = vk::SampleCountFlagBits::e1;
 
+			vk::AttachmentDescription depthAttachment;
+			depthAttachment.format = vk::Format::eD32Sfloat;
+			depthAttachment.loadOp = vk::AttachmentLoadOp::eLoad;
+			depthAttachment.storeOp = vk::AttachmentStoreOp::eStore;
+			depthAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+			depthAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+			depthAttachment.initialLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+			depthAttachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+			depthAttachment.samples = vk::SampleCountFlagBits::e1;
+
 			vk::AttachmentReference colorAttachmentRef;
 			colorAttachmentRef.attachment = 0;
 			colorAttachmentRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+			vk::AttachmentReference depthAttachmentRef;
+			depthAttachmentRef.attachment = 1;
+			depthAttachmentRef.layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
 
 			vk::SubpassDescription subpass;
 			subpass.colorAttachmentCount = 1;
 			subpass.pColorAttachments = &colorAttachmentRef;
 			subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+			subpass.pDepthStencilAttachment = &depthAttachmentRef;
+
+			auto attachments = { colorAttachment, depthAttachment };
 
 			vk::RenderPassCreateInfo renderPassInfo;
-			renderPassInfo.attachmentCount = 1;
-			renderPassInfo.pAttachments = &colorAttachment;
+			renderPassInfo.attachmentCount = 2;
+			renderPassInfo.pAttachments = attachments.begin();
 			renderPassInfo.subpassCount = 1;
 			renderPassInfo.pSubpasses = &subpass;
 
@@ -922,12 +950,7 @@ int main() {
 			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, lightingVertexShader, "main");
 			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, lightingFragmentShader, "main");
 
-			auto& binding = Vertex::getBindingDescription();
-			auto& attributes = Vertex::getAttributeDescriptions();
-			factory.vertexInput.vertexBindingDescriptionCount = 1;
-			factory.vertexInput.pVertexBindingDescriptions = &binding;
-			factory.vertexInput.vertexAttributeDescriptionCount = attributes.size();
-			factory.vertexInput.pVertexAttributeDescriptions = attributes.data();
+			factory.vertexInput = Vertex::getVertexInputState();
 
 			factory.inputAssembly.topology = vk::PrimitiveTopology::eTriangleStrip;
 			vk::Viewport viewport;
@@ -970,7 +993,91 @@ int main() {
 			lightingPipeline = factory.createPipeline(vulkan.device);
 		}
 
+		// Create skybox pipeline
+		/* Create render pass */
+		{
+			vk::AttachmentDescription colorAttachment;
+			colorAttachment.format = format;
+			colorAttachment.loadOp = vk::AttachmentLoadOp::eLoad;
+			colorAttachment.storeOp = vk::AttachmentStoreOp::eStore;
+			colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+			colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+			colorAttachment.initialLayout = vk::ImageLayout::ePresentSrcKHR;
+			colorAttachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+			colorAttachment.samples = vk::SampleCountFlagBits::e1;
 
+			vk::AttachmentDescription depthAttachment;
+			depthAttachment.format = vk::Format::eD32Sfloat;
+			depthAttachment.loadOp = vk::AttachmentLoadOp::eLoad;
+			depthAttachment.storeOp = vk::AttachmentStoreOp::eStore;
+			depthAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+			depthAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+			depthAttachment.initialLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+			depthAttachment.finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+
+			vk::AttachmentReference colorAttachmentRef;
+			colorAttachmentRef.attachment = 0;
+			colorAttachmentRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+			vk::AttachmentReference depthAttachmentRef;
+			depthAttachmentRef.attachment = 1;
+			depthAttachmentRef.layout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+
+			auto attachments = { colorAttachment, depthAttachment };
+
+			vk::SubpassDescription subpass;
+			subpass.colorAttachmentCount = 1;
+			subpass.pColorAttachments = &colorAttachmentRef;
+			subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+			subpass.pDepthStencilAttachment = &depthAttachmentRef;
+			
+
+			vk::RenderPassCreateInfo renderPassInfo;
+			renderPassInfo.attachmentCount = 2;
+			renderPassInfo.pAttachments = attachments.begin();
+			renderPassInfo.subpassCount = 1;
+			renderPassInfo.pSubpasses = &subpass;
+
+			skyboxPass = vulkan.device.createRenderPass(renderPassInfo);
+		}
+		{
+			PipelineFactory factory;
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, createShaderModule(FUtil::file_read_binary("shaders/compiled/forward/skybox.vert.spv"), vulkan.device), "main");
+			factory.shaderStages.emplace_back(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, createShaderModule(FUtil::file_read_binary("shaders/compiled/forward/skybox.frag.spv"), vulkan.device), "main");
+			
+			factory.vertexInput = Vertex::getVertexInputState();
+
+			factory.inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+			factory.viewport = screenViewport;
+			factory.scissor = screenScissor;
+			factory.rasterizer.lineWidth = 1.0f;
+
+			factory.depthStencil.depthTestEnable = true;
+			factory.depthStencil.depthCompareOp = vk::CompareOp::eLessOrEqual;
+
+			vk::PipelineColorBlendAttachmentState colorBlendAttachment = {};
+			colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+			colorBlendAttachment.blendEnable = false;
+
+			auto colorBlendAttachments = { colorBlendAttachment };
+			factory.colorBlending.attachmentCount = colorBlendAttachments.size();
+			factory.colorBlending.pAttachments = colorBlendAttachments.begin();
+
+			factory.multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+
+			auto layouts = { mvpBufferLayout, skyboxSetLayout };
+			vk::PipelineLayoutCreateInfo layoutInfo;
+			layoutInfo.setLayoutCount = layouts.size();
+			layoutInfo.pSetLayouts = layouts.begin();
+
+			skyboxPipelineLayout = vulkan.device.createPipelineLayout(layoutInfo);
+
+			factory.layout = skyboxPipelineLayout;
+			factory.renderPass = skyboxPass;
+
+			skyboxPipeline = factory.createPipeline(vulkan.device);
+
+		}
 
 		// Create g buffer
 		{
@@ -1017,12 +1124,13 @@ int main() {
 		swapChainFramebuffers.resize(swapChainImageViews.size());
 		for (size_t i = 0; i < swapChainImageViews.size(); i++) {
 			vk::ImageView attachments[] = {
-				swapChainImageViews[i]
+				swapChainImageViews[i],
+				depthImageView
 			};
 
 			vk::FramebufferCreateInfo framebufferInfo = {};
 			framebufferInfo.renderPass = lightingPass;
-			framebufferInfo.attachmentCount = 1;
+			framebufferInfo.attachmentCount = 2;
 			framebufferInfo.pAttachments = attachments;
 			framebufferInfo.width = extent.width;
 			framebufferInfo.height = extent.height;
@@ -1063,7 +1171,7 @@ int main() {
 
 		// Create descriptor set
 		{
-			auto layouts = { mvpBufferLayout, lightBufferLayout, gBufferLayout, environmentMapLayout };
+			auto layouts = { mvpBufferLayout, lightBufferLayout, gBufferLayout, skyboxSetLayout };
 			vk::DescriptorSetAllocateInfo allocInfo = {};
 			allocInfo.descriptorPool = descriptorPool;
 			allocInfo.descriptorSetCount = layouts.size();
@@ -1073,7 +1181,7 @@ int main() {
 			mvpBufferSet = sets[0];
 			lightBufferSet = sets[1];
 			gBufferSet = sets[2];
-			environmentMapSet = sets[3];
+			skyboxSet = sets[3];
 
 			std::vector<vk::WriteDescriptorSet> descriptorWrites;
 
@@ -1116,9 +1224,9 @@ int main() {
 				vk::DescriptorImageInfo envMapInfo;
 				envMapInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 				envMapInfo.imageView = environmentCubemap.view;
-				envMapInfo.sampler = textureImageSampler;
+				envMapInfo.sampler = plainSampler;
 
-				descriptorWrites.push_back(vk::WriteDescriptorSet(environmentMapSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &envMapInfo, nullptr));
+				descriptorWrites.push_back(vk::WriteDescriptorSet(skyboxSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &envMapInfo, nullptr));
 			}
 
 			vulkan.device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
@@ -1203,6 +1311,21 @@ int main() {
 			commandBuffer.bindVertexBuffers(0, 1, &screenQuadBuffer.buffer, offsets);
 			commandBuffer.bindIndexBuffer(indexBuffer.buffer, 0, vk::IndexType::eUint32);
 			commandBuffer.draw(4, 1, 0, 0);
+			commandBuffer.endRenderPass();
+
+
+			vk::RenderPassBeginInfo fwdPass;
+			fwdPass.renderPass = skyboxPass;
+			fwdPass.framebuffer = swapChainFramebuffers[i];
+			fwdPass.renderArea = renderPassInfo.renderArea;
+			
+			commandBuffer.beginRenderPass(fwdPass, vk::SubpassContents::eInline);
+			commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, skyboxPipeline);
+			commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, skyboxPipelineLayout, 0, 1, &mvpBufferSet, 0, nullptr);
+			commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, skyboxPipelineLayout, 1, 1, &skyboxSet, 0, nullptr);
+			commandBuffer.bindVertexBuffers(0, 1, &unitCubeVertexBuffer.buffer, offsets);
+			commandBuffer.bindIndexBuffer(unitCubeIndexBuffer.buffer, 0, vk::IndexType::eUint32);
+			commandBuffer.drawIndexed(unitCube.indices.size(), 1, 0, 0, 0);
 			commandBuffer.endRenderPass();
 			commandBuffer.end();
 		}
