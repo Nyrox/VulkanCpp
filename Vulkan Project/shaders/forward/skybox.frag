@@ -8,7 +8,7 @@ layout(location = 0) out vec4 outColor;
 layout(set = 1, binding = 0) uniform sampler3D skybox;
 
 void main() {
-	vec3 sampleVector = normalize(fragPosition * -1);
+	vec3 sampleVector = normalize(fragPosition);
 
 	vec3 skyColor = texture(skybox, sampleVector).rgb;
 

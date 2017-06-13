@@ -344,9 +344,9 @@ int main() {
 	vk::Sampler plainSampler;
 	{
 		vk::SamplerCreateInfo samplerInfo;
-		samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
-		samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
-		samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
+		samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+		samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+		samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
 
 		plainSampler = vulkan.device.createSampler(samplerInfo);
 	}
